@@ -10,6 +10,8 @@ import os
 import sqlite3
 
 DOC_FIELDS = ("title", "creators", "year", "doi", "url", "abstract", "tags", "summary", "notes", "annotations")
+FTS_COLS = ("title", "creators", "tags", "abstract", "summary", "notes", "annotations")
+FTS_WEIGHTS = (10.0, 3.0, 3.0, 1.0, 2.0, 2.0, 1.0)  # title hits dominate
 
 
 def _hash(doc: dict) -> str:
@@ -34,7 +36,28 @@ class Index:
                 key TEXT PRIMARY KEY, title TEXT, creators TEXT, year TEXT, doi TEXT, url TEXT,
                 abstract TEXT, tags TEXT, summary TEXT, notes TEXT, annotations TEXT,
                 content_hash TEXT, vector BLOB)""")
+        had_fts = self.db.execute(
+            "SELECT 1 FROM sqlite_master WHERE name='docs_fts'").fetchone() is not None
+        self.db.execute(
+            "CREATE VIRTUAL TABLE IF NOT EXISTS docs_fts USING fts5("
+            + ", ".join(FTS_COLS)
+            + ", content='docs', content_rowid='rowid')")
+        if not had_fts:
+            # fresh FTS table over an existing docs table: index what is already there
+            self.db.execute("INSERT INTO docs_fts(docs_fts) VALUES ('rebuild')")
         self.db.execute("CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT)")
+        self.db.commit()
+
+    def _fts_sync(self, key: str, old: dict | None, new: dict) -> None:
+        """Keep the external-content FTS5 table in sync with docs."""
+        rowid = self.db.execute("SELECT rowid FROM docs WHERE key=?", (key,)).fetchone()[0]
+        if old is not None:
+            self.db.execute(
+                "INSERT INTO docs_fts(docs_fts, rowid, " + ", ".join(FTS_COLS) + ") VALUES ('delete', ?" + ",?" * len(FTS_COLS) + ")",
+                (rowid, *[_s(old.get(c)) for c in FTS_COLS]))
+        self.db.execute(
+            "INSERT INTO docs_fts(rowid, " + ", ".join(FTS_COLS) + ") VALUES (?" + ",?" * len(FTS_COLS) + ")",
+            (rowid, *[_s(new.get(c)) for c in FTS_COLS]))
         self.db.commit()
 
     def upsert(self, doc: dict) -> bool:
@@ -47,8 +70,34 @@ class Index:
             "INSERT OR REPLACE INTO docs (key,title,creators,year,doi,url,abstract,tags,summary,"
             "notes,annotations,content_hash,vector) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,NULL)",
             (doc["key"], *[_s(doc.get(f)) for f in DOC_FIELDS], h))
-        self.db.commit()
+        self._fts_sync(doc["key"], old, doc)
         return True
+
+    def search_fts(self, escaped_query: str, k: int = 30) -> list[tuple[str, float, str]]:
+        """BM25 search. Takes an already-escaped FTS5 query string.
+
+        Returns [(key, score, snippet)] with higher score = better match.
+        """
+        if not escaped_query.strip():
+            return []
+        w = ",".join(str(x) for x in FTS_WEIGHTS)
+        # snippet() only highlights inside a MATCH query, so all snippets come from this one SELECT
+        snips = ", ".join(
+            f"snippet(docs_fts, {FTS_COLS.index(c)}, '[[', ']]', ' ... ', 24) AS s_{c}"
+            for c in ("title", "abstract", "summary", "notes", "annotations"))
+        rows = self.db.execute(
+            "SELECT d.key, bm25(docs_fts, " + w + ") AS s, " + snips
+            + " FROM docs_fts JOIN docs d ON d.rowid = docs_fts.rowid"
+            + " WHERE docs_fts MATCH ? ORDER BY s LIMIT ?",
+            (escaped_query, k)).fetchall()
+        out = []
+        for key, s, sn_title, sn_abs, sn_sum, sn_notes, sn_ann in rows:
+            best = ""
+            for snip in (sn_sum, sn_abs, sn_notes, sn_ann):
+                if (snip or "").count("[[") > (best or "").count("[["):
+                    best = snip
+            out.append((key, -s, best or sn_title or ""))
+        return out
 
     def get(self, key: str) -> dict | None:
         row = self.db.execute("SELECT * FROM docs WHERE key=?", (key,)).fetchone()

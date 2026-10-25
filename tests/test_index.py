@@ -77,6 +77,42 @@ The summary body goes here.
 """
 
 
+class FtsTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        from zotero_rag.index import Index
+        self.idx = Index(os.path.join(self.tmp.name, "t.db"))
+
+    def test_fts_synced_after_upsert(self):
+        self.idx.upsert(doc(key="A", title="alpha", summary="beta text"))
+        res = self.idx.search_fts('"alpha"')
+        self.assertEqual([r[0] for r in res], ["A"])
+        # changed row stays findable under the new text only
+        self.idx.upsert(doc(key="A", title="gamma", summary="beta text"))
+        self.assertEqual([r[0] for r in self.idx.search_fts('"alpha"')], [])
+        self.assertEqual([r[0] for r in self.idx.search_fts('"gamma"')], ["A"])
+
+    def test_fts_finds_summary_text(self):
+        self.idx.upsert(doc(key="A", title="t", summary="retrieval augmented generation works well"))
+        res = self.idx.search_fts('"retrieval" AND "generation"')
+        self.assertEqual(res[0][0], "A")
+        self.assertIn("retrieval", res[0][2])  # snippet mentions the match
+
+    def test_fts_weights_title_over_summary(self):
+        self.idx.upsert(doc(key="A", title="quantum ranking", summary="nothing else"))
+        self.idx.upsert(doc(key="B", title="other", summary="quantum ranking appears here in the body"))
+        res = self.idx.search_fts('"quantum"')
+        self.assertEqual(res[0][0], "A")  # title hit beats summary hit
+        self.assertGreater(res[0][1], res[1][1])  # higher score = better
+
+    def test_fts_accepts_preescaped_query(self):
+        self.idx.upsert(doc(key="A", title='he said "hi"', summary="plain text"))
+        # tokens double-quoted, inner quotes doubled — must execute without error
+        res = self.idx.search_fts('"he" AND "said" AND """hi"""')
+        self.assertEqual([r[0] for r in res], ["A"])
+
+
 class BuildTest(unittest.TestCase):
     def test_build_reads_summary_md_body(self):
         from zotero_rag.index import Index, build
