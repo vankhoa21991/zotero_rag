@@ -14,7 +14,7 @@
 
 - Python 3.10+; summarizer and `zot` wrapper stdlib-only; `numpy` for vectors; `llama-cpp-python` and `pymupdf` optional extras.
 - Tests: `unittest` only, no network, no Zotero, no LLM, no embedding model (fake HTTP server or injected callables). Run: `uv run --with numpy python -m unittest discover -s tests -v`.
-- LLM key from env `LLM_KEY`; base `LLM_BASE` (default `http://127.0.0.1:8080/v1`); model `LLM_MODEL` (default `qwen3.8-27b`). Embeddings are in-process llama.cpp: `EMBED_MODEL` (path to a GGUF; if unset or unreadable, vector search is unavailable), `EMBED_DEVICE` (default `cpu`). Reranking: `RERANK_MODEL` (path to a cross-encoder GGUF; optional — fallback is LLM judge, then RRF). No secrets in files.
+- LLM key from env `LLM_KEY`; base `LLM_BASE` (default `http://127.0.0.1:8080/v1`); model `LLM_MODEL` (default `qwen3.8-27b`). Embeddings are in-process llama.cpp: `EMBED_MODEL` (path to a GGUF; default `~/models/nomic-embed-text-v1.5.Q8_0.gguf`; if unset or unreadable, vector search is unavailable), `EMBED_DEVICE` (default `cpu`). Reranking: `RERANK_MODEL` (path to a cross-encoder GGUF; default `~/models/bge-reranker-v2-m3-Q8_0.gguf`; optional — fallback is LLM judge, then RRF). No secrets in files.
 - Never write to Zotero. `items.json`, `data/`, and the index are gitignored.
 - Summary file: `data/summaries/<key>.md`; front matter fields exactly `key`, `title`, `url`, `zotero`, `source`, `summarized`; `source` in {`pdf`,`abstract`,`page`,`snapshot`,`readme`,`notebook`}.
 - Summaries 300-500 words; texts over 24,000 characters are summarized in 24,000-character sections, then merged.
@@ -66,20 +66,20 @@ The three stages are separate CLI commands; each re-runs independently and conte
 
 **Files:** Create `docs/spikes.md`.
 
-- [ ] **Step 1: PDF text source.** For 20 PDF-bearing items spread over the user's library, get each `zot pdf KEY --json` path, read the sibling `.zotero-ft-cache`, and extract with PyMuPDF (`uv run --with pymupdf`). Record per file: pages, cache chars, PyMuPDF chars.
-- [ ] **Step 2: Decide.** Rule: use `.zotero-ft-cache` if it holds at least 60% of PyMuPDF's characters on at least 15 of 20 files; otherwise PyMuPDF first with the cache as fallback. Write the rule and numbers to `docs/spikes.md`.
-- [ ] **Step 3: Embedding model.** Ask the user for a small GGUF embedding model (loaded on demand in-process, CPU by default — no persistent server). Verify with `uv run --with llama-cpp-python`: load the GGUF and embed 32 short texts; record model name, vector size, load time, and per-batch time in `docs/spikes.md`.
-- [ ] **Step 4: Reranker.** Check whether llama.cpp/llama-cpp-python can run a cross-encoder GGUF (BGE-reranker-v2-m3 class, ~568M params) in-process; if yes, load it and score ~50 (question, doc) pairs, recording time; if no, verify the LLM-judge fallback (one batched chat call scoring 20 candidates) and record its time. Write the working path to `docs/spikes.md`.
-- [ ] **Step 5:** No commit yet — the repo is initialized in Task 1; the scaffold commit includes `docs/spikes.md`.
+- [x] **Step 1: PDF text source.** For 20 PDF-bearing items spread over the user's library, get each `zot pdf KEY --json` path, read the sibling `.zotero-ft-cache`, and extract with PyMuPDF (`uv run --with pymupdf`). Record per file: pages, cache chars, PyMuPDF chars.
+- [x] **Step 2: Decide.** Rule: use `.zotero-ft-cache` if it holds at least 60% of PyMuPDF's characters on at least 15 of 20 files; otherwise PyMuPDF first with the cache as fallback. Write the rule and numbers to `docs/spikes.md`. **Result:** cache present in 0/20 → PyMuPDF direct, keep the 150k-char cap.
+- [x] **Step 3: Embedding model.** Ask the user for a small GGUF embedding model (loaded on demand in-process, CPU by default — no persistent server). Verify with `uv run --with llama-cpp-python`: load the GGUF and embed 32 short texts; record model name, vector size, load time, and per-batch time in `docs/spikes.md`. **Result:** user approved common defaults → `~/models/nomic-embed-text-v1.5.Q8_0.gguf` (768-dim, ~10 ms/text, load 0.1 s).
+- [x] **Step 4: Reranker.** Check whether llama.cpp/llama-cpp-python can run a cross-encoder GGUF (BGE-reranker-v2-m3 class, ~568M params) in-process; if yes, load it and score ~50 (question, doc) pairs, recording time; if no, verify the LLM-judge fallback (one batched chat call scoring 20 candidates) and record its time. Write the working path to `docs/spikes.md`. **Result:** YES — `~/models/bge-reranker-v2-m3-Q8_0.gguf` works via `pooling_type=LLAMA_POOLING_TYPE_RANK`; score = `embed(prompt)[0]`; correct ordering verified; ~180–700 ms/pair on CPU. LLM-judge fallback stays in the design as degradation path only.
+- [x] **Step 5:** No commit yet — the repo is initialized in Task 1; the scaffold commit includes `docs/spikes.md`.
 
 ### Task 1: Project scaffold
 
 **Files:** Create `pyproject.toml`, `.gitignore`, `tests/__init__.py`; run `git init`.
 
-- [ ] **Step 1:** `pyproject.toml` with name `zotero-rag`, `requires-python = ">=3.10"`, dependency `numpy`, extras `embed = ["llama-cpp-python"]`, `pdf = ["pymupdf"]`, script `zrag = "zotero_rag.cli:main"` (no MCP entry point in this version), package dir `src`.
-- [ ] **Step 2:** `.gitignore` lists `items.json`, `data/`, `*.db`, `__pycache__/`, `.venv/`.
-- [ ] **Step 3:** Run `uv run --with numpy python -m unittest discover -s tests` — Expected: `Ran 0 tests` and exit 0.
-- [ ] **Step 4: Commit.**
+- [x] **Step 1:** `pyproject.toml` with name `zotero-rag`, `requires-python = ">=3.10"`, dependency `numpy`, extras `embed = ["llama-cpp-python"]`, `pdf = ["pymupdf"]`, script `zrag = "zotero_rag.cli:main"` (no MCP entry point in this version), package dir `src`.
+- [x] **Step 2:** `.gitignore` lists `items.json`, `data/`, `*.db`, `__pycache__/`, `.venv/`.
+- [x] **Step 3:** Run `uv run --with numpy python -m unittest discover -s tests` — Expected: `Ran 0 tests` and exit 0.
+- [x] **Step 4: Commit.**
 
 ### Task 2: `zot` wrapper and item filtering
 
@@ -88,10 +88,10 @@ The three stages are separate CLI commands; each re-runs independently and conte
 **Interfaces:**
 - Produces: `class Zot(run=subprocess_run)` with `export_all() -> list[dict]`, `pdf_paths(key: str) -> list[str]`, `attachment(key: str) -> dict` (`{"parent": str, "path": str | None}`), `notes(key: str) -> list[str]`, `annotations(key: str) -> list[dict]`; `items.top_level(rows: list[dict]) -> list[dict]`; `items.load_notes_annotations(zot, keys, cache_path) -> (notes_by_key, annotations_by_key)` — a JSONL cache keyed by the sha256 of the sorted key set; on a miss it calls `zot.notes`/`zot.annotations` per key (~2×N subprocess calls, progress shown) and writes the cache; default path `data/notes_annotations.json` (gitignored).
 
-- [ ] **Step 1: Failing tests.** `test_top_level_drops_attachment_note_annotation` (fixture of 6 rows of mixed types -> 3 remain); `test_pdf_paths_reads_json` (fake `run` returns the fixture of `zot pdf K --json` -> `["/home/.../x.pdf"]`); `test_attachment_parent_and_path` (fixture of `zot get K --raw --json` -> `parent == "96F7X3YD"`, path from `links.enclosure.href` with the `file://` prefix removed and percent-decoding applied); `test_zot_failure_raises` (nonzero exit -> `ZotError` carrying stderr); `test_notes_cache_hit_and_miss` (first call hits zot per key and writes the cache; second call with the same keys -> zero zot calls).
-- [ ] **Step 2:** Run -> FAIL (module missing).
-- [ ] **Step 3: Implement** both modules; `Zot` shells out to `zot ... --json` and parses stdout; the injected `run` makes tests offline.
-- [ ] **Step 4:** Run -> PASS. **Step 5: Commit.**
+- [x] **Step 1: Failing tests.** `test_top_level_drops_attachment_note_annotation` (fixture of 6 rows of mixed types -> 3 remain); `test_pdf_paths_reads_json` (fake `run` returns the fixture of `zot pdf K --json` -> `["/home/.../x.pdf"]`); `test_attachment_parent_and_path` (fixture of `zot get K --raw --json` -> `parent == "96F7X3YD"`, path from `links.enclosure.href` with the `file://` prefix removed and percent-decoding applied); `test_zot_failure_raises` (nonzero exit -> `ZotError` carrying stderr); `test_notes_cache_hit_and_miss` (first call hits zot per key and writes the cache; second call with the same keys -> zero zot calls).
+- [x] **Step 2:** Run -> FAIL (module missing).
+- [x] **Step 3: Implement** both modules; `Zot` shells out to `zot ... --json` and parses stdout; the injected `run` makes tests offline.
+- [x] **Step 4:** Run -> PASS (11 tests). **Step 5: Commit.**
 
 ### Task 3: LLM client and sectioned summarizer
 
