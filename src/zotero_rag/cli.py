@@ -1,0 +1,226 @@
+"""zrag command line: describe | index | embed | search | eval.
+
+Each call starts the process, does its work and exits (no persistent server).
+The make_* factories are module-level so tests can inject fakes; by default they
+build from EMBED_MODEL/EMBED_DEVICE, RERANK_MODEL and the LLM_* environment
+variables. Missing models degrade (with a note on stderr), they do not abort.
+"""
+import argparse
+import json
+import os
+import sys
+
+DB_DEFAULT = "~/.local/share/zotero-rag/index.db"
+
+
+def _items_rows(items_json: str, zot) -> list[dict]:
+    if os.path.exists(items_json):
+        with open(items_json, encoding="utf-8") as f:
+            return json.load(f)
+    print(f"{items_json} not found; exporting from zot...", file=sys.stderr)
+    return zot.export_all()
+
+
+def make_embedder():
+    """Embedder from EMBED_MODEL/EMBED_DEVICE, or None (vector search off)."""
+    from .embed import EMBED_MODEL_DEFAULT, Embedder, EmbedModelUnavailable
+
+    try:
+        return Embedder(os.environ.get("EMBED_MODEL", EMBED_MODEL_DEFAULT),
+                        os.environ.get("EMBED_DEVICE", "cpu"))
+    except EmbedModelUnavailable as e:
+        print(f"note: {e}", file=sys.stderr)
+        return None
+
+
+def make_reranker():
+    """Reranker from RERANK_MODEL, or None (judge/RRF fallback)."""
+    from .rerank import RERANK_MODEL_DEFAULT, CrossEncoder, RerankerUnavailable
+
+    try:
+        return CrossEncoder(os.environ.get("RERANK_MODEL", RERANK_MODEL_DEFAULT),
+                            os.environ.get("EMBED_DEVICE", "cpu"))
+    except RerankerUnavailable as e:
+        print(f"note: {e}", file=sys.stderr)
+        return None
+
+
+def make_llm():
+    from .llm import LLM
+
+    return LLM()
+
+
+def cmd_describe(args) -> int:
+    from . import describe
+
+    argv = [args.items_json]
+    if args.limit:
+        argv += ["--limit", str(args.limit)]
+    if args.keys:
+        argv += ["--keys", args.keys]
+    argv += ["--md-dir", args.md_dir, "--out", args.out]
+    if args.retry_failed:
+        argv.append("--retry-failed")
+    return describe.main(argv)
+
+
+def cmd_index(args) -> int:
+    from . import items as items_mod
+    from .index import Index, build
+    from .zotclient import Zot
+
+    zot = Zot()
+    rows = _items_rows(args.items_json, zot)
+    top = items_mod.top_level(rows)
+    keys = [r["key"] for r in top if r.get("key")]
+    print(f"{len(rows)} rows, {len(top)} top-level items", file=sys.stderr)
+
+    def progress(i, n, key):
+        if i % 50 == 0 or i == n:
+            print(f"notes/annotations {i}/{n}", file=sys.stderr, flush=True)
+
+    notes, anns = items_mod.load_notes_annotations(zot, keys, args.notes_cache, progress)
+    db = os.path.expanduser(args.db)
+    idx = Index(db)
+    counts = build(idx, top, args.md_dir, notes, anns)
+    print(f"index: {counts} -> {db}", file=sys.stderr)
+    return 0
+
+
+def cmd_embed(args) -> int:
+    from .embed import embed_missing
+    from .index import Index
+
+    db = os.path.expanduser(args.db)
+    if not os.path.exists(db):
+        print(f"no index at {db}; run 'zrag index' first", file=sys.stderr)
+        return 2
+    idx = Index(db)
+    emb = make_embedder()
+    if emb is None:
+        return 2
+    n = embed_missing(idx, emb)
+    print(f"embedded {n} docs -> {db}", file=sys.stderr)
+    return 0
+
+
+def _print_human(out: dict) -> None:
+    if out["warning"]:
+        print(f"warning: {out['warning']}", file=sys.stderr)
+    if not out["results"]:
+        print("no results")
+        return
+    for i, r in enumerate(out["results"], 1):
+        print(f"{i}. {r['title']} [{r['key']}] score={r['score']:.4f} source={r['source']}")
+        meta = " ".join(x for x in (r["creators"], r["year"]) if x)
+        if meta:
+            print(f"   {meta}")
+        ident = " ".join(x for x in (f"doi:{r['doi']}" if r["doi"] else "", r["url"]) if x)
+        if ident:
+            print(f"   {ident}")
+        if r["passage"]:
+            print(f"   {r['passage'].replace(chr(10), ' ')[:400]}")
+    print(f"(mode: {out['mode']})", file=sys.stderr)
+
+
+def cmd_search(args) -> int:
+    from .index import Index
+    from .search import find_papers
+
+    db = os.path.expanduser(args.db)
+    if not os.path.exists(db):
+        print(f"no index at {db}; run 'zrag index' first", file=sys.stderr)
+        return 2
+    idx = Index(db)
+    out = find_papers(idx, make_embedder(), make_reranker(), make_llm(), args.question, k=args.k)
+    if args.json:
+        print(json.dumps(out, ensure_ascii=False, indent=2))
+    else:
+        _print_human(out)
+    return 0
+
+
+def cmd_eval(args) -> int:
+    from . import evaluate
+    from .index import Index
+    from .search import escape_fts, find_papers
+
+    db = os.path.expanduser(args.db)
+    if not os.path.exists(db):
+        print(f"no index at {db}; run 'zrag index' first", file=sys.stderr)
+        return 2
+    idx = Index(db)
+    with open(args.questions, encoding="utf-8") as f:
+        questions = [json.loads(line) for line in f if line.strip()]
+
+    emb, rr, llm = make_embedder(), make_reranker(), make_llm()
+
+    def keyword_only(q):
+        return [key for key, *_ in idx.search_fts(escape_fts(q), 10)]
+
+    def full(q):
+        out = find_papers(idx, emb, rr, llm, q, k=10)
+        if out["warning"]:
+            print(f"note: {out['warning']}", file=sys.stderr)
+        return [r["key"] for r in out["results"]]
+
+    for name, fn in (("keyword-only", keyword_only), ("full pipeline", full)):
+        res = evaluate.evaluate(questions, fn)
+        print(f"{name:<14} n={res['n']}  hit@5={res['hit@5']:.2f}  hit@10={res['hit@10']:.2f}")
+    return 0
+
+
+def _parser() -> argparse.ArgumentParser:
+    ap = argparse.ArgumentParser(prog="zrag", description="Search the local Zotero research library.")
+    sub = ap.add_subparsers(dest="cmd")
+
+    d = sub.add_parser("describe", help="summarize items from their own content (stage 1)")
+    d.add_argument("items_json", nargs="?", default="items.json")
+    d.add_argument("--limit", type=int, default=0)
+    d.add_argument("--keys", help="comma-separated item keys (overrides selection)")
+    d.add_argument("--md-dir", default="data/summaries")
+    d.add_argument("--out", default="data/descriptions.jsonl")
+    d.add_argument("--retry-failed", action="store_true")
+    d.set_defaults(func=cmd_describe)
+
+    i = sub.add_parser("index", help="ingest items + summaries + notes into the SQLite index")
+    i.add_argument("items_json", nargs="?", default="items.json")
+    i.add_argument("--db", default=DB_DEFAULT)
+    i.add_argument("--md-dir", default="data/summaries")
+    i.add_argument("--notes-cache", default="data/notes_annotations.json")
+    i.set_defaults(func=cmd_index)
+
+    e = sub.add_parser("embed", help="compute vectors for docs without one (stage 2)")
+    e.add_argument("--db", default=DB_DEFAULT)
+    e.set_defaults(func=cmd_embed)
+
+    s = sub.add_parser("search", help="hybrid search: BM25 + vectors, reranked (stage 3)")
+    s.add_argument("question")
+    s.add_argument("-k", type=int, default=10)
+    s.add_argument("--db", default=DB_DEFAULT)
+    s.add_argument("--json", action="store_true", help="print the full JSON response")
+    s.set_defaults(func=cmd_search)
+
+    v = sub.add_parser("eval", help="hit@5/10 for a questions.jsonl (keyword-only vs full pipeline)")
+    v.add_argument("questions")
+    v.add_argument("--db", default=DB_DEFAULT)
+    v.set_defaults(func=cmd_eval)
+
+    return ap
+
+
+def main(argv=None) -> int:
+    ap = _parser()
+    try:
+        args = ap.parse_args(argv)
+    except SystemExit as e:
+        return int(e.code or 0)
+    if not getattr(args, "func", None):
+        ap.print_help(sys.stderr)
+        return 2
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

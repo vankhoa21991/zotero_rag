@@ -84,6 +84,15 @@ class Zot:
         return [t for t in out if t]
 
     def annotations(self, key: str) -> list[dict]:
-        """Annotations of an item or its PDF attachments: {type,page,color,text,comment}."""
-        d = self._call("annotations", key)
+        """Annotations of an item or its PDF attachments: {type,page,color,text,comment}.
+
+        Items without a PDF attachment have no annotations; zot exits non-zero with
+        "no PDF attachment", which is normalized to [].
+        """
+        try:
+            d = self._call("annotations", key)
+        except ZotError as e:
+            if "no PDF attachment" in (e.stderr or ""):
+                return []
+            raise
         return d.get("annotations") or []

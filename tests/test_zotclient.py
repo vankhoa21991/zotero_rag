@@ -83,6 +83,14 @@ class ZotClientTest(unittest.TestCase):
         self.assertEqual(anns[0]["type"], "highlight")
         self.assertIn("4th place", anns[0]["text"])
 
+    def test_annotations_empty_when_no_pdf(self):
+        from zotero_rag.zotclient import Zot
+
+        zot = Zot(run=FakeRun({
+            ("annotations", "5GAWEQNX"): (3, "", "error: no PDF attachment for 5GAWEQNX"),
+        }))
+        self.assertEqual(zot.annotations("5GAWEQNX"), [])
+
     def test_zot_failure_raises(self):
         from zotero_rag.zotclient import Zot, ZotError
 
