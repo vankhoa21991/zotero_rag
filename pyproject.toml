@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "zotero-rag"
+version = "0.1.0"
+description = "Local RAG over a Zotero library: summarize every item with a local LLM, index it (BM25 + vectors), and search it."
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+]
+
+[project.optional-dependencies]
+embed = ["llama-cpp-python"]
+pdf = ["pymupdf"]
+
+[project.scripts]
+zrag = "zotero_rag.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
