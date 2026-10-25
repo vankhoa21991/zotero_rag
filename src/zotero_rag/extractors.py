@@ -124,9 +124,26 @@ def _charset(ctype: str) -> str:
     return m.group(1) if m else "utf-8"
 
 
+def _scheme_ok(url: str) -> bool:
+    return (url or "").lower().startswith(("http://", "https://"))
+
+
+def fetch_raw(url: str, opener=urllib.request.urlopen) -> tuple[str, str]:
+    """Fetch a URL as raw text without content-type filtering (READMEs, notebooks)."""
+    if not _scheme_ok(url):
+        return "", "bad_scheme"
+    req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "*/*"})
+    try:
+        with opener(req, timeout=20) as r:
+            raw = r.read(MAX_BYTES)
+    except Exception as e:
+        return "", "fetch_failed:" + type(e).__name__ + ":" + str(e)[:60]
+    return raw.decode("utf-8", errors="replace"), "ok"
+
+
 def fetch(url: str, opener=urllib.request.urlopen) -> tuple[str, str]:
     """Fetch a URL and return (text, status). status is 'ok' or a short failure reason."""
-    if not (url or "").lower().startswith(("http://", "https://")):
+    if not _scheme_ok(url):
         return "", "bad_scheme"
     req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "text/html,*/*;q=0.5"})
     try:
