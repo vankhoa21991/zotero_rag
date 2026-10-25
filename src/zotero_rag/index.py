@@ -73,10 +73,11 @@ class Index:
         self._fts_sync(doc["key"], old, doc)
         return True
 
-    def search_fts(self, escaped_query: str, k: int = 30) -> list[tuple[str, float, str]]:
+    def search_fts(self, escaped_query: str, k: int = 30) -> list[tuple[str, float, str, str]]:
         """BM25 search. Takes an already-escaped FTS5 query string.
 
-        Returns [(key, score, snippet)] with higher score = better match.
+        Returns [(key, score, snippet, source)] with higher score = better match;
+        source is the column the snippet came from (title/abstract/summary/note/annotation).
         """
         if not escaped_query.strip():
             return []
@@ -92,11 +93,14 @@ class Index:
             (escaped_query, k)).fetchall()
         out = []
         for key, s, sn_title, sn_abs, sn_sum, sn_notes, sn_ann in rows:
-            best = ""
-            for snip in (sn_sum, sn_abs, sn_notes, sn_ann):
-                if (snip or "").count("[[") > (best or "").count("[["):
-                    best = snip
-            out.append((key, -s, best or sn_title or ""))
+            best, src = "", ""
+            for text, name in ((sn_sum, "summary"), (sn_abs, "abstract"),
+                               (sn_notes, "note"), (sn_ann, "annotation")):
+                if (text or "").count("[[") > (best or "").count("[["):
+                    best, src = text, name
+            if not best:
+                best, src = sn_title or "", "title"
+            out.append((key, -s, best, src))
         return out
 
     def get(self, key: str) -> dict | None:
@@ -108,6 +112,9 @@ class Index:
 
     def keys_without_vector(self) -> list[str]:
         return [r[0] for r in self.db.execute("SELECT key FROM docs WHERE vector IS NULL ORDER BY key")]
+
+    def has_vectors(self) -> bool:
+        return self.db.execute("SELECT 1 FROM docs WHERE vector IS NOT NULL LIMIT 1").fetchone() is not None
 
     def set_vector(self, key: str, vec) -> None:
         import numpy as np
