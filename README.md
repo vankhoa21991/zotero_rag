@@ -5,100 +5,107 @@ your local Zotero library, with links. Everything runs on this machine: Zotero i
 through the `zot` CLI (from `zotero-agent`), summaries and embeddings come from local
 llama.cpp models, and the index is a single SQLite file.
 
-**Status:** planning plus a tested summarizer. See [PLAN.md](PLAN.md) for the full plan,
-phases and open questions.
+**Status:** the pipeline is built and tested end-to-end. The full summarization run
+(~2,400 items, hours) has not been done yet — search works on titles/abstracts/notes now
+and gets better as summaries land. See [PLAN.md](PLAN.md) for the plan and open questions.
 
-## What we are going to do
-
-Most of the library is web pages with no abstract, so searching titles alone finds little.
-The plan:
-
-1. **Summarize every item.** Take the best text available for each Zotero item, and have the
-   local LLM write a 300-500 word summary from it. Each summary is its own markdown file,
-   `data/summaries/<zotero key>.md`, with the title, URL, a `zotero://select/...` link and
-   the source of the text in its front matter. Sources, best first:
-   - the item's local **PDF** (824 items have one),
-   - the live **web page** (most of the 2,300 URLs),
-   - a saved Zotero **snapshot** when the page is blocked or dead (about 400 exist),
-   - a GitHub repo's **README** (578 repos) or a Jupyter **notebook** (26),
-   - a video **transcript** for YouTube (19) — out of v1; those items are listed with a reason instead.
-
-   Skipped and listed with a reason: Google Drive/Docs (login), images, PowerPoint files, and
-   scanned PDFs without a text layer unless OCR proves worthwhile.
-2. **Ingest the library** with `zot ... --json` into a normalized table, together with your
-   232 notes and 1,674 PDF annotations (highlights and comments), which are indexed as they
-   are because they are your own words.
-3. **Index it**: BM25 keywords (SQLite FTS5) plus vectors (a local embedding model run
-   in-process) over title, abstract, summary, tags and notes. Search takes candidates from both,
-   reranks them with a small local reranker, and returns the best matches.
-4. **Expose one function**, `find_papers(question)`, as a CLI (`zrag search`) — an MCP tool is
-   planned for later — so Hermes, Pi and Claude Code can all call it and get back titles, URLs
-   and the matching passage.
-5. **Measure it** against 20-30 real questions with known good answers, and keep the
-   keyword-only version as the baseline it has to beat.
-6. **Keep it fresh** by summarizing and indexing only new or changed items.
-7. **Maybe later:** index PDF full text too.
-
-It never writes to Zotero. It returns papers and passages; the calling agent writes the answer.
-
-## What exists today
-
-- `src/zotero_rag/describe.py` (standard library only): fetches each page, reduces it to
-  text, summarizes it with the local model, and writes one `.md` file per item. Long pages
-  are summarized in sections and merged. Failures are logged with a status and get no file.
-  The log makes runs resumable.
-- Today only the web-page path exists. PDFs, snapshots, READMEs, notebooks and transcripts are
-  planned (see PLAN.md, "Sources other than web pages").
-- Tested on 5 sample pages: 386-511 words each, 13-99 seconds each. Medium (403), a paywalled
-  Elsevier link and a YouTube page produced no summary. The full run has not been done yet.
-
-## Prerequisites (done on this machine)
-
-- Zotero 7+ running, with the local API enabled (Settings → Advanced).
-- The `zotero-agent` bridge plugin installed in Zotero, and the `zot` CLI installed.
-  `zot ping` should show the local API, bridge and plugin all up.
-- A running llama.cpp server with an OpenAI-compatible `/v1`. Its API key goes in the
-  `LLM_KEY` environment variable; `LLM_BASE` and `LLM_MODEL` can override the defaults
-  (`http://127.0.0.1:8080/v1`, `qwen3.8-27b`).
-
-## Running the summarizer
+## Quick start
 
 ```bash
 cd ~/projects/zotero-rag
-zot search "" --all --json > items.json       # includes attachments/notes; the script filters them
+uv sync                    # one time; core deps (numpy) + the zrag command
+uv sync --extra embed      # optional: llama-cpp-python for vector + rerank search
+uv sync --extra pdf        # optional: pymupdf for PDF-first summarization
 
-# trial on a few items first
-LLM_KEY=... PYTHONPATH=src python3 -m zotero_rag.describe items.json data/descriptions.jsonl --limit 10
+# one-time ingest (~10 min: fetches your notes/annotations from zot and caches them)
+zrag index items.json          # export first if missing: zot search "" --all --json > items.json
 
-# specific items
-LLM_KEY=... PYTHONPATH=src python3 -m zotero_rag.describe items.json data/descriptions.jsonl --keys ABCD1234,EFGH5678
+# one-time vectors (~15 min)
+zrag embed
 
-# the full run (slow: expect many hours; safe to stop and re-run, it resumes)
-LLM_KEY=... PYTHONPATH=src python3 -m zotero_rag.describe items.json data/descriptions.jsonl
+# search — human output on stdout, warnings on stderr
+zrag search "price suggestion for online second-hand markets"
+zrag search "..." -k 5 --json  # machine-readable: {"results": [...], "warning": ..., "mode": ...}
 ```
 
-Options: `--limit N`, `--keys A,B,C`, `--md-dir DIR` (default `data/summaries`).
+Each result carries `key, title, creators, year, doi, url, score, passage, source`
+(`source` is which field matched: summary/abstract/notes/tags/title). The
+`zotero://select/<key>` link opens the item in Zotero.
 
-Note: once the implementation plan lands, these become `zrag describe …` (same options plus
-`--retry-failed`), and the summarizer gains PDF/README/notebook/snapshot sources.
+## Commands
+
+| command | what it does |
+|---|---|
+| `zrag describe [ITEMS_JSON] [--limit N] [--keys A,B] [--retry-failed]` | stage 1: summarize items from their own content (PDF first, then web page, snapshot, README, notebook). Resumable via `data/descriptions.jsonl`. The full run takes hours; stop and re-run any time. |
+| `zrag index [ITEMS_JSON] [--db PATH]` | ingest items + summaries + notes/annotations into the SQLite index. Content-hashed: re-run after a describe batch to pick up new/changed docs (seconds, notes are cached). |
+| `zrag embed [--db PATH]` | compute vectors for docs without one. |
+| `zrag search QUESTION [-k N] [--json] [--db PATH]` | hybrid search: BM25 + vector candidates, reranked. |
+| `zrag eval QUESTIONS.jsonl [--db PATH]` | hit@5/10 for the question set, keyword-only vs full pipeline. |
+
+## How search works
+
+1. **Candidates** from both sides: FTS5/BM25 over `title + abstract + summary + tags +
+   notes`, and cosine top-k over stored vectors. The union (capped at 30) is what gets
+   reranked — a document found only by vectors still makes the shortlist.
+2. **Rerank** with the local cross-encoder (`bge-reranker-v2-m3`, Q8_0 GGUF). If it is
+   unavailable, an LLM judge scores the candidates in one call; if that fails too, results
+   are reciprocal-rank-fused. The `mode` field says which happened; a `warning` explains
+   any degradation. Nothing raises because a model is missing.
+3. One row per item: the best-scoring source field becomes the passage.
+
+Models (all local GGUF in `~/models/`): embedding `nomic-embed-text-v1.5.Q8_0` (768-dim),
+reranker `bge-reranker-v2-m3-Q8_0`, LLM `qwen3.8-27b` on the llama.cpp server.
+
+## Configuration (environment)
+
+| variable | default |
+|---|---|
+| `LLM_KEY` | required for summarization and the judge fallback |
+| `LLM_BASE` / `LLM_MODEL` | `http://127.0.0.1:8080/v1` / `qwen3.8-27b` |
+| `EMBED_MODEL` / `RERANK_MODEL` | the GGUF paths above |
+| `EMBED_DEVICE` | `cpu` |
+
+The index lives at `~/.local/share/zotero-rag/index.db` (override with `--db`).
+
+## Evaluation
+
+`eval/questions.jsonl`: one JSON per line, `{"q": "...", "expect": ["KEY1", ...]}`.
+A question is a hit at k if any expected key is in the top-k. `zrag eval` compares the
+full pipeline against keyword-only (BM25 alone), which it must beat — otherwise stop and
+report, per PLAN.md. The current 6 starter questions come from real library items; grow
+them to 20-30 of your own. On those 6: full pipeline hit@5 = 1.00, keyword-only 0.17.
 
 ## Layout
 
 ```
 README.md  PLAN.md
-src/zotero_rag/describe.py     summarizer (exists)
-data/summaries/<key>.md        one summary per item
-data/descriptions.jsonl        status log and resume file
-eval/questions.jsonl           evaluation questions (to write)
+src/zotero_rag/
+  zotclient.py     `zot` CLI wrapper (all Zotero access goes through here)
+  items.py         export filtering; notes/annotations fetch + cache
+  llm.py           OpenAI-compatible client for the local llama.cpp server
+  extractors.py    text extraction: web page, PDF, snapshot, README, notebook
+  sources.py       source selection per item (PDF > page > snapshot > README > notebook)
+  describe.py      stage 1: sectioned summarization, resumable status log
+  index.py         SQLite index: docs table + FTS5 + vectors + content hash
+  embed.py         in-process GGUF embedder; embed_missing()
+  rerank.py        cross-encoder reranker, LLM judge, RRF fallback
+  search.py        find_papers(): candidate union -> rerank -> one row per item
+  evaluate.py      hit@k over questions.jsonl
+  cli.py           zrag command line
+tests/             offline unit tests (fake run/fake LLM/fake embedder); real-model tests skip unless available
+data/
+  items.json       full library export (gitignored — it is your whole library)
+  summaries/<key>.md   one summary per item, front matter has title/url/zotero link/source
+  descriptions.jsonl   describe status log and resume file
+  notes_annotations.json   cache of notes/annotations fetches (gitignored)
+eval/questions.jsonl     evaluation questions
 ```
-
-Later: `zotclient.py`, `items.py`, `llm.py`, `extractors.py`, `sources.py`, `index.py`,
-`embed.py`, `search.py`, `evaluate.py`, `cli.py` (MCP tool deferred).
 
 ## Things to know
 
-- Summaries are written by a local model from the page text and can contain mistakes.
+- Summaries are written by a local model from the page/PDF text and can contain mistakes.
   Spot-check a sample before relying on the whole set.
-- The summarizer makes about 2,300 outbound web requests when run in full.
-- No secrets are stored in this folder. Do not commit `items.json` (it is your whole library)
-  or the API key.
+- The full describe run makes about 2,300 outbound web requests.
+- Items with no usable source (login-walled Drive/Docs, images, scanned PDFs) are listed
+  with a reason in `data/descriptions.jsonl` and indexed from title/abstract only.
+- No secrets are stored in this folder. Do not commit `items.json` or the API key.

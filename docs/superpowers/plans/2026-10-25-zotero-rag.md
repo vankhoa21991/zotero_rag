@@ -100,8 +100,8 @@ The three stages are separate CLI commands; each re-runs independently and conte
 **Interfaces:**
 - Produces: `class LLM(base, key, model, post=None)` with `ask(title: str, text: str, system: str, max_tokens: int) -> str` (strips `<think>…</think>`); `summarize(title: str, text: str, llm) -> str` returning the summary or the literal `"INSUFFICIENT"`.
 
-- [ ] **Step 1: Failing tests** using a fake `llm.ask` that records calls: `test_short_text_one_call` (10,000 chars -> 1 call); `test_long_text_sections_then_merge` (60,000 chars -> 3 section calls with `NOTES_PROMPT` + 1 merge call with `PROMPT` = 4 calls); `test_all_sections_insufficient` (every section returns `INSUFFICIENT` -> result `INSUFFICIENT`, no merge call); `test_think_blocks_stripped` (HTTP fake returns `<think>x</think>hello` -> `hello`).
-- [ ] **Step 2:** FAIL. **Step 3: Implement** to the signatures above; keep the prompt text as it is in `describe.py`. **Step 4:** PASS. **Step 5: Commit.**
+- [x] **Step 1: Failing tests** using a fake `llm.ask` that records calls: `test_short_text_one_call` (10,000 chars -> 1 call); `test_long_text_sections_then_merge` (60,000 chars -> 3 section calls with `NOTES_PROMPT` + 1 merge call with `PROMPT` = 4 calls); `test_all_sections_insufficient` (every section returns `INSUFFICIENT` -> result `INSUFFICIENT`, no merge call); `test_think_blocks_stripped` (HTTP fake returns `<think>x</think>hello` -> `hello`).
+- [x] **Step 2:** FAIL. **Step 3: Implement** to the signatures above; keep the prompt text as it is in `describe.py`. **Step 4:** PASS. **Step 5: Commit.**
 
 ### Task 4: Text extractors
 
@@ -110,8 +110,8 @@ The three stages are separate CLI commands; each re-runs independently and conte
 **Interfaces:**
 - Produces: `html_to_text(html: str) -> str` (drops script, style, nav, footer, header, form; keeps `<title>` and meta description first); `notebook_to_text(raw: str) -> str` (markdown cells + code comments); `github_readme_url(url: str) -> str | None`; `pdf_to_text(path: str, max_chars: int = 150000) -> str` (rule from Task 0; text capped at `max_chars`); `fetch(url: str, opener=urlopen) -> tuple[str, str]` returning `(text, status)` with status `"ok"` or a reason such as `"non_text:application/zip"`, `"fetch_failed:HTTPError:403"`, `"too_big"`.
 
-- [ ] **Step 1: Failing tests.** `test_html_drops_scripts_keeps_title`; `test_github_repo_url_to_readme` (`https://github.com/a/b` and `…/a/b/` -> `https://raw.githubusercontent.com/a/b/HEAD/README.md`; `…/a/b/issues/3` and `https://example.com/a/b` -> `None`); `test_notebook_cells`; `test_fetch_non_text_status` (fake opener returns `Content-Type: application/zip` -> status starts with `non_text`); `test_fetch_bad_encoding_does_not_raise` (bytes `\xff\xfe…` declared utf-8 -> returns text, status `ok`); `test_fetch_caps_size` (body over 1.5 MB -> text length ≤ cap).
-- [ ] **Step 2:** FAIL. **Step 3: Implement**, moving `_Text` and `fetch_text` from `describe.py`; `pdf_to_text` returns `""` when the file is missing or has no extractable text. **Step 4:** PASS. **Step 5: Commit.**
+- [x] **Step 1: Failing tests.** `test_html_drops_scripts_keeps_title`; `test_github_repo_url_to_readme` (`https://github.com/a/b` and `…/a/b/` -> `https://raw.githubusercontent.com/a/b/HEAD/README.md`; `…/a/b/issues/3` and `https://example.com/a/b` -> `None`); `test_notebook_cells`; `test_fetch_non_text_status` (fake opener returns `Content-Type: application/zip` -> status starts with `non_text`); `test_fetch_bad_encoding_does_not_raise` (bytes `\xff\xfe…` declared utf-8 -> returns text, status `ok`); `test_fetch_caps_size` (body over 1.5 MB -> text length ≤ cap).
+- [x] **Step 2:** FAIL. **Step 3: Implement**, moving `_Text` and `fetch_text` from `describe.py`; `pdf_to_text` returns `""` when the file is missing or has no extractable text. **Step 4:** PASS. **Step 5: Commit.**
 
 ### Task 5: Source selection
 
@@ -121,8 +121,8 @@ The three stages are separate CLI commands; each re-runs independently and conte
 - Consumes: `Zot.pdf_paths`, `Zot.attachment`, `extractors.*`.
 - Produces: `@dataclass Source(kind: str, text: str)`; `choose_source(item: dict, zot, fetch=extractors.fetch) -> tuple[Source | None, str]` returning `(source, "ok")` or `(None, reason)`.
 
-- [ ] **Step 1: Failing tests** with fakes for `zot` and `fetch`: `test_pdf_beats_page` (item has PDF text and a URL -> kind `pdf`, `fetch` never called); `test_abstract_when_no_pdf_text` -> `abstract`; `test_github_url_uses_readme` -> kind `readme`, fetched URL is the raw README; `test_ipynb_url_uses_notebook`; `test_snapshot_when_live_fails` (fetch returns `fetch_failed`, a snapshot HTML file exists in a temp dir -> kind `snapshot`); `test_unsupported_hosts_reported` (`drive.google.com`, `docs.google.com`, `youtube.com` -> `(None, "unsupported:drive.google.com")` etc.); `test_text_under_200_chars_is_too_short` -> `(None, "too_short")`.
-- [ ] **Step 2:** FAIL. **Step 3: Implement** the priority order from the spec; snapshot lookup needs a parent map because the export rows carry no parent: build it once, `{parent_key: [attachment_key, …]}`, by calling `zot.attachment(k)` for every export row of type `attachment` whose title is `Snapshot` or `arXiv.org Snapshot` (~412 calls), then read the `.html` file from each `path`. **Step 4:** PASS. **Step 5: Commit.**
+- [x] **Step 1: Failing tests** with fakes for `zot` and `fetch`: `test_pdf_beats_page` (item has PDF text and a URL -> kind `pdf`, `fetch` never called); `test_abstract_when_no_pdf_text` -> `abstract`; `test_github_url_uses_readme` -> kind `readme`, fetched URL is the raw README; `test_ipynb_url_uses_notebook`; `test_snapshot_when_live_fails` (fetch returns `fetch_failed`, a snapshot HTML file exists in a temp dir -> kind `snapshot`); `test_unsupported_hosts_reported` (`drive.google.com`, `docs.google.com`, `youtube.com` -> `(None, "unsupported:drive.google.com")` etc.); `test_text_under_200_chars_is_too_short` -> `(None, "too_short")`.
+- [x] **Step 2:** FAIL. **Step 3: Implement** the priority order from the spec; snapshot lookup needs a parent map because the export rows carry no parent: build it once, `{parent_key: [attachment_key, …]}`, by calling `zot.attachment(k)` for every export row of type `attachment` whose title is `Snapshot` or `arXiv.org Snapshot` (~412 calls), then read the `.html` file from each `path`. **Step 4:** PASS. **Step 5: Commit.**
 
 ### Task 6: Describe pipeline
 
@@ -132,8 +132,8 @@ The three stages are separate CLI commands; each re-runs independently and conte
 - Consumes: `choose_source`, `llm.summarize`.
 - Produces: `describe_item(item: dict, zot, llm, fetch) -> dict` (record with `key,url,title,source,status,summary,at`); `write_md(rec: dict, md_dir: str) -> str`; `run(items: list[dict], zot, llm, out_jsonl: str, md_dir: str, limit: int = 0, keys: set | None = None, retry_failed: bool = False) -> dict` returning counts per status. Default resume skips every logged key; `retry_failed` re-attempts logged keys whose status is not `ok` or `insufficient`.
 
-- [ ] **Step 1: Failing tests.** `test_md_front_matter_exact` (file starts with `---`, has exactly the six fields in order, `zotero: zotero://select/library/items/<key>`, title JSON-quoted so a title containing `"` and `:` stays valid, body contains the summary); `test_failure_writes_no_md_but_logs_status`; `test_resume_skips_logged_keys` (second `run` makes zero LLM calls and zero new files); `test_insufficient_logged_not_written`; `test_summary_word_count_logged_when_outside_300_500` (record gets `"length_warning": true`); `test_retry_failed_retries_only_failures` (a `fetch_failed` key is re-attempted; an `ok` key is skipped).
-- [ ] **Step 2:** FAIL. **Step 3: Implement**; `main()` now builds `Zot`, `LLM` from env and calls `run`. **Step 4:** PASS. **Step 5:** Run the 5-item sample manually (`--keys` the five used before) and check the files look like `data/summaries/HJP5M95Z.md`. **Step 6: Commit.**
+- [x] **Step 1: Failing tests.** `test_md_front_matter_exact` (file starts with `---`, has exactly the six fields in order, `zotero: zotero://select/library/items/<key>`, title JSON-quoted so a title containing `"` and `:` stays valid, body contains the summary); `test_failure_writes_no_md_but_logs_status`; `test_resume_skips_logged_keys` (second `run` makes zero LLM calls and zero new files); `test_insufficient_logged_not_written`; `test_summary_word_count_logged_when_outside_300_500` (record gets `"length_warning": true`); `test_retry_failed_retries_only_failures` (a `fetch_failed` key is re-attempted; an `ok` key is skipped).
+- [x] **Step 2:** FAIL. **Step 3: Implement**; `main()` now builds `Zot`, `LLM` from env and calls `run`. **Step 4:** PASS. **Step 5:** Run the 5-item sample manually (`--keys` the five used before) and check the files look like `data/summaries/HJP5M95Z.md`. **Step 6: Commit.**
 
 ### Task 7: Documents table and content hash (ingestion)
 
@@ -142,8 +142,8 @@ The three stages are separate CLI commands; each re-runs independently and conte
 **Interfaces:**
 - Produces: `class Index(path: str)`; `upsert(doc: dict) -> bool` (True if inserted or changed, False if the content hash is unchanged); `get(key: str) -> dict | None`; `keys_without_vector() -> list[str]`; `set_vector(key, vec)`; `vectors() -> tuple[list[str], numpy.ndarray]`; `meta_get/meta_set`. Doc fields: `key,title,creators,year,doi,url,abstract,tags,summary,notes,annotations`. `build(index, rows, summaries_dir, notes_by_key, annotations_by_key) -> dict` returning counts `added/changed/unchanged`.
 
-- [ ] **Step 1: Failing tests.** `test_upsert_idempotent` (same doc twice -> second returns False, one row); `test_changed_summary_replaces_row_and_clears_vector`; `test_title_only_doc_indexes` (Review Focus 2); `test_build_reads_summary_md_body` (front matter excluded from the stored summary).
-- [ ] **Step 2:** FAIL. **Step 3: Implement**; one `docs` table; `content_hash` = sha256 of the joined fields. **Step 4:** PASS. **Step 5: Commit.**
+- [x] **Step 1: Failing tests.** `test_upsert_idempotent` (same doc twice -> second returns False, one row); `test_changed_summary_replaces_row_and_clears_vector`; `test_title_only_doc_indexes` (Review Focus 2); `test_build_reads_summary_md_body` (front matter excluded from the stored summary).
+- [x] **Step 2:** FAIL. **Step 3: Implement**; one `docs` table; `content_hash` = sha256 of the joined fields. **Step 4:** PASS. **Step 5: Commit.**
 
 ### Task 8: BM25 index (FTS5)
 
@@ -152,8 +152,8 @@ The three stages are separate CLI commands; each re-runs independently and conte
 **Interfaces:**
 - Produces: an external-content FTS5 table `docs_fts(title, creators, tags, abstract, summary, notes, annotations)` kept in sync on upsert; `search_fts(escaped_query: str, k: int = 30) -> list[tuple[str, float, str]]` (key, BM25 score, snippet). Takes an already-escaped query string (escaping is Task 10's `escape_fts`).
 
-- [ ] **Step 1: Failing tests.** `test_fts_synced_after_upsert`; `test_fts_finds_summary_text`; `test_fts_weights_title_over_summary` (same term in doc A's title and doc B's summary -> A ranks first); `test_fts_accepts_preescaped_query` (a query string of double-quoted tokens with doubled quotes executes without error).
-- [ ] **Step 2:** FAIL. **Step 3: Implement.** **Step 4:** PASS. **Step 5: Commit.**
+- [x] **Step 1: Failing tests.** `test_fts_synced_after_upsert`; `test_fts_finds_summary_text`; `test_fts_weights_title_over_summary` (same term in doc A's title and doc B's summary -> A ranks first); `test_fts_accepts_preescaped_query` (a query string of double-quoted tokens with doubled quotes executes without error).
+- [x] **Step 2:** FAIL. **Step 3: Implement.** **Step 4:** PASS. **Step 5: Commit.**
 
 ### Task 9: Vectors (embedding model)
 
@@ -162,8 +162,8 @@ The three stages are separate CLI commands; each re-runs independently and conte
 **Interfaces:**
 - Produces: `class Embedder(model_path: str, device: str = "cpu")` wrapping `llama-cpp-python`, with `model_name` (GGUF file name), `dim`, `embed(texts: list[str]) -> list[list[float]]`; raises `EmbedModelUnavailable` if the dependency or GGUF is missing; `embed_missing(index, embedder, batch: int = 32) -> int` (number embedded). Stores `embed_model` and `embed_dim` in index meta on first write.
 
-- [ ] **Step 1: Failing tests** with a fake embedder: `test_embed_missing_only_new` (3 docs, 1 already has a vector -> 2 embedded; running again -> 0); `test_changed_doc_is_reembedded`; `test_model_mismatch_refuses` (index built with model A, embedder says model B -> `EmbedModelMismatch` naming both); `test_dimension_mismatch_refuses`; `test_text_embedded_is_title_abstract_summary` (the text sent for a doc contains all three and not the annotations).
-- [ ] **Step 2:** FAIL. **Step 3: Implement** with `llama_cpp.Llama(model_path, ...)`; the import is guarded so a missing dependency raises `EmbedModelUnavailable` naming the `zotero-rag[embed]` extra. **Step 4:** PASS. **Step 5: Commit.**
+- [x] **Step 1: Failing tests** with a fake embedder: `test_embed_missing_only_new` (3 docs, 1 already has a vector -> 2 embedded; running again -> 0); `test_changed_doc_is_reembedded`; `test_model_mismatch_refuses` (index built with model A, embedder says model B -> `EmbedModelMismatch` naming both); `test_dimension_mismatch_refuses`; `test_text_embedded_is_title_abstract_summary` (the text sent for a doc contains all three and not the annotations).
+- [x] **Step 2:** FAIL. **Step 3: Implement** with `llama_cpp.Llama(model_path, ...)`; the import is guarded so a missing dependency raises `EmbedModelUnavailable` naming the `zotero-rag[embed]` extra. **Step 4:** PASS. **Step 5: Commit.**
 
 ### Task 10: Search — BM25 + vector candidates, then rerank
 
@@ -173,8 +173,8 @@ The three stages are separate CLI commands; each re-runs independently and conte
 - `rerank.py` produces: `class CrossEncoder(model_path: str, device: str = "cpu")` with `score(question: str, docs: list[dict]) -> list[float]`; raises `RerankerUnavailable` if the dependency or GGUF is missing; `judge(question: str, docs: list[dict], llm) -> list[float]` (one batched chat call asking for JSON scores 0-10 per candidate); `rrf(rankings: list[list[str]], k: int = 60) -> list[tuple[str, float]]`.
 - `search.py` produces: `escape_fts(q: str) -> str` (every token double-quoted, quotes doubled; `""` for empty input); `find_papers(index, embedder, reranker, llm, question: str, k: int = 10, cand: int = 30) -> dict` returning `{"results": [result shape from Global Constraints], "warning": str | None, "mode": "rerank" | "judge" | "rrf"}`. Candidates = BM25 top-`cand` ∪ vector top-`cand`; ordered by reranker scores if available, else judge, else RRF; one row per item; passage is the best-matching snippet.
 
-- [ ] **Step 1: Failing tests.** `test_escape_handles_syntax` (`'foo AND "bar" -baz: *'` -> a string FTS5 accepts without error when executed); `test_empty_question_returns_empty_results` (Review Focus 1, for `""`, `"   "`, `'"'`); `test_candidates_union_both_sides` (a doc found only by BM25 and a doc found only by vectors are both in the candidate pool); `test_rerank_reorders_candidates` (fake reranker scores flip the RRF order); `test_judge_fallback_mode` (reranker raises `RerankerUnavailable` -> judge used, `mode == "judge"`); `test_rrf_fallback_mode` (reranker and judge both unavailable -> `mode == "rrf"`, warning set); `test_embedder_unavailable_falls_back` (embedder raises `EmbedModelUnavailable` -> BM25-only results, `warning` non-empty, no exception); `test_one_row_per_item` (item hit by FTS and vectors appears once); `test_passage_is_snippet_from_summary`; `test_unrelated_query_does_not_return_title_only_doc` (Review Focus 2).
-- [ ] **Step 2:** FAIL. **Step 3: Implement**: BM25 top 30 + vector top 30 -> union; rerank if `RERANK_MODEL` loads, else judge, else RRF; attach `source` (`summary`/`abstract`/`note`) from where the snippet came. **Step 4:** PASS. **Step 5: Commit.**
+- [x] **Step 1: Failing tests.** `test_escape_handles_syntax` (`'foo AND "bar" -baz: *'` -> a string FTS5 accepts without error when executed); `test_empty_question_returns_empty_results` (Review Focus 1, for `""`, `"   "`, `'"'`); `test_candidates_union_both_sides` (a doc found only by BM25 and a doc found only by vectors are both in the candidate pool); `test_rerank_reorders_candidates` (fake reranker scores flip the RRF order); `test_judge_fallback_mode` (reranker raises `RerankerUnavailable` -> judge used, `mode == "judge"`); `test_rrf_fallback_mode` (reranker and judge both unavailable -> `mode == "rrf"`, warning set); `test_embedder_unavailable_falls_back` (embedder raises `EmbedModelUnavailable` -> BM25-only results, `warning` non-empty, no exception); `test_one_row_per_item` (item hit by FTS and vectors appears once); `test_passage_is_snippet_from_summary`; `test_unrelated_query_does_not_return_title_only_doc` (Review Focus 2).
+- [x] **Step 2:** FAIL. **Step 3: Implement**: BM25 top 30 + vector top 30 -> union; rerank if `RERANK_MODEL` loads, else judge, else RRF; attach `source` (`summary`/`abstract`/`note`) from where the snippet came. **Step 4:** PASS. **Step 5: Commit.**
 
 ### Task 11: CLI
 
@@ -182,8 +182,8 @@ The three stages are separate CLI commands; each re-runs independently and conte
 
 **Interfaces:** `main(argv: list[str] | None = None) -> int`; subcommands `describe [ITEMS_JSON] [--limit N] [--keys A,B] [--md-dir D] [--retry-failed]`, `index [ITEMS_JSON] [--db PATH]` (notes/annotations via the `items.load_notes_annotations` cache), `embed [--db PATH]`, `search QUESTION [-k N] [--json]`, `eval QUESTIONS.jsonl`; `ITEMS_JSON` defaults to `items.json`; default db `~/.local/share/zotero-rag/index.db`. The embedder is built from `EMBED_MODEL`/`EMBED_DEVICE`, the reranker from `RERANK_MODEL`; if either is unavailable, `search` still works (BM25-only and/or judge/RRF mode, with a warning and `mode`).
 
-- [ ] **Step 1: Failing tests:** `test_search_json_shape` (run against a temp db with two docs and a fake embedder injected through a module-level factory -> JSON list with the exact result keys); `test_search_no_db_message` (missing db -> exit code 2 and a message naming `zrag index`); `test_unknown_command_exits_2`.
-- [ ] **Step 2:** FAIL. **Step 3: Implement.** **Step 4:** PASS. **Step 5: Commit.**
+- [x] **Step 1: Failing tests:** `test_search_json_shape` (run against a temp db with two docs and a fake embedder injected through a module-level factory -> JSON list with the exact result keys); `test_search_no_db_message` (missing db -> exit code 2 and a message naming `zrag index`); `test_unknown_command_exits_2`.
+- [x] **Step 2:** FAIL. **Step 3: Implement.** **Step 4:** PASS. **Step 5: Commit.**
 
 ### Task 12: Evaluation
 
@@ -191,16 +191,16 @@ The three stages are separate CLI commands; each re-runs independently and conte
 
 **Interfaces:** `evaluate(questions: list[dict], search_fn, ks=(5, 10)) -> dict` returning `{"n": int, "hit@5": float, "hit@10": float}`; `zrag eval` prints keyword-only and the full pipeline (BM25 + vector + rerank) side by side.
 
-- [ ] **Step 1: Failing tests:** `test_hit_rates` (3 questions, fake `search_fn` returning known keys -> `hit@5 == 2/3`); `test_empty_expect_is_error`.
-- [ ] **Step 2:** FAIL. **Step 3: Implement.** **Step 4:** PASS. **Step 5:** With the user's questions, run `zrag eval`; the full pipeline must beat keyword-only on `hit@10`, otherwise stop and report before building anything further. **Step 6: Commit.**
+- [x] **Step 1: Failing tests:** `test_hit_rates` (3 questions, fake `search_fn` returning known keys -> `hit@5 == 2/3`); `test_empty_expect_is_error`.
+- [x] **Step 2:** FAIL. **Step 3: Implement.** **Step 4:** PASS. **Step 5:** With the user's questions, run `zrag eval`; the full pipeline must beat keyword-only on `hit@10`, otherwise stop and report before building anything further. **Step 6: Commit.**
 
 ### Task 13: Wire into the agents and shared memory
 
 **Files:** Modify `README.md`; the user's shared-memory `environment.md`.
 
-- [ ] **Step 1:** Update `README.md` with run commands for describe, index, embed, search, eval.
+- [x] **Step 1:** Update `README.md` with run commands for describe, index, embed, search, eval.
 - [ ] **Step 2:** Verify each agent (Claude Code, Pi, Hermes) can call `zrag search` via the shell; for each, ask the same question and compare the returned keys. (MCP tool: later version.)
-- [ ] **Step 3:** Add one line to `/home/lupin/projects/aikeytake/07 Agent Memory/environment.md` saying how to call `find_papers`.
+- [x] **Step 3:** Add one line to `/home/lupin/projects/aikeytake/07 Agent Memory/environment.md` saying how to call `find_papers`.
 - [ ] **Step 4: Commit.**
 
 ---
