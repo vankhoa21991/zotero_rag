@@ -1,0 +1,12 @@
+{
+  "key": "6H9J5Q5I",
+  "library": {"id": 1},
+  "links": {
+    "self": {"href": "http://localhost:23119/api/users/2202636/items/6H9J5Q5I", "type": "application/json"},
+    "alternate": {"href": "https://www.zotero.org/users/2202636/items/6H9J5Q5I", "type": "text/html"},
+    "up": {"href": "http://localhost:23119/api/users/2202636/items/K63FYV9J", "type": "application/json"},
+    "enclosure": {"href": "file:///home/lupin/Zotero/storage/6H9J5Q5I/Liu%20-%20Fundamentals%20of%20Building%20AI%20Agents.pdf", "type": "application/pdf", "title": "Liu - Fundamentals of Building AI Agents.pdf"}
+  },
+  "data": {"itemType": "attachment", "linkMode": "imported_file"},
+  "version": 1
+}

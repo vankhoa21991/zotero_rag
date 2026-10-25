@@ -1,0 +1,2 @@
+[console_scripts]
+zrag = zotero_rag.cli:main

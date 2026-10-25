@@ -1,0 +1,8 @@
+[
+  {"key": "K63FYV9J", "citekey": "liu2026fundamentals", "type": "journalArticle", "title": "Fundamentals of Building AI Agents", "date": "2026-01-01", "year": "2026", "creators": [{"name": "Liu, Wei"}], "venue": "Journal of Agents", "doi": "10.1000/xyz", "url": "", "tags": ["agents"], "abstract": "A paper about agents."},
+  {"key": "AB12CDEF", "citekey": null, "type": "webpage", "title": "Some page", "date": "", "year": "", "creators": [], "venue": "", "doi": "", "url": "https://example.com/page", "tags": [], "abstract": ""},
+  {"key": "GHI78901", "citekey": null, "type": "preprint", "title": "A preprint", "date": "2025-06-01", "year": "2025", "creators": [{"name": "Doe, Jane"}], "venue": "arXiv", "doi": "", "url": "https://arxiv.org/abs/1", "tags": [], "abstract": "Preprint abstract."},
+  {"key": "6H9J5Q5I", "citekey": null, "type": "attachment", "title": "PDF", "date": "", "year": "", "creators": [], "venue": "", "doi": "", "url": "", "tags": [], "abstract": ""},
+  {"key": "VH5ZARE7", "citekey": null, "type": "note", "title": "", "date": "", "year": "", "creators": [], "venue": "", "doi": "", "url": "", "tags": [], "abstract": ""},
+  {"key": "VE89CWZB", "citekey": null, "type": "annotation", "title": "", "date": "", "year": "", "creators": [], "venue": "", "doi": "", "url": "", "tags": [], "abstract": ""}
+]

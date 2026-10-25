@@ -1,0 +1,14 @@
+{
+  "itemKey": "M732XRDG",
+  "title": "PDF",
+  "count": 1,
+  "annotations": [
+    {
+      "type": "highlight",
+      "page": "1",
+      "color": "#ffd400",
+      "text": "HEDGE achieves 4th place in the NTIRE 2026 Robust AI-Generated Image Detection in the Wild Challenge and attains state-of-the-art performance.",
+      "comment": ""
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+numpy
+
+[embed]
+llama-cpp-python
+
+[pdf]
+pymupdf

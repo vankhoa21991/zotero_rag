@@ -1,0 +1,13 @@
+{
+  "key": "VH5ZARE7",
+  "links": {
+    "self": {"href": "http://localhost:23119/api/users/2202636/items/VH5ZARE7", "type": "application/json"},
+    "up": {"href": "http://localhost:23119/api/users/2202636/items/TPUL2GNW", "type": "application/json"}
+  },
+  "data": {
+    "itemType": "note",
+    "note": "<div>Comment: <b>4th place</b> (out of 193 teams) in the NTIRE 2026 Robust AI-Generated Image Detection in the Wild Challenge</div>",
+    "parentItem": "TPUL2GNW"
+  },
+  "version": 2
+}

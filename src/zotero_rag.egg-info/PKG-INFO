@@ -1,0 +1,10 @@
+Metadata-Version: 2.4
+Name: zotero-rag
+Version: 0.1.0
+Summary: Local RAG over a Zotero library: summarize every item with a local LLM, index it (BM25 + vectors), and search it.
+Requires-Python: >=3.10
+Requires-Dist: numpy
+Provides-Extra: embed
+Requires-Dist: llama-cpp-python; extra == "embed"
+Provides-Extra: pdf
+Requires-Dist: pymupdf; extra == "pdf"
