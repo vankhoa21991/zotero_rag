@@ -5,3 +5,11 @@ llama-cpp-python
 
 [pdf]
 pymupdf
+
+[server]
+fastapi
+uvicorn
+jinja2
+python-multipart
+httpx
+nh3

@@ -1,2 +1,3 @@
 [console_scripts]
+shelf = shelf.cli:main
 zrag = zotero_rag.cli:main

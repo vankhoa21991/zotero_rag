@@ -14,9 +14,11 @@ dependencies = [
 [project.optional-dependencies]
 embed = ["llama-cpp-python"]
 pdf = ["pymupdf"]
+server = ["fastapi", "uvicorn", "jinja2", "python-multipart", "httpx", "nh3"]
 
 [project.scripts]
 zrag = "zotero_rag.cli:main"
+shelf = "shelf.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

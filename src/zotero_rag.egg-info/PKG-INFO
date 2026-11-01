@@ -8,3 +8,10 @@ Provides-Extra: embed
 Requires-Dist: llama-cpp-python; extra == "embed"
 Provides-Extra: pdf
 Requires-Dist: pymupdf; extra == "pdf"
+Provides-Extra: server
+Requires-Dist: fastapi; extra == "server"
+Requires-Dist: uvicorn; extra == "server"
+Requires-Dist: jinja2; extra == "server"
+Requires-Dist: python-multipart; extra == "server"
+Requires-Dist: httpx; extra == "server"
+Requires-Dist: nh3; extra == "server"

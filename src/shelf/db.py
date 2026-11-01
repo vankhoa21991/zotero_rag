@@ -1,0 +1,113 @@
+"""SQLite connection and schema for shelf.
+
+Contract: `connect` returns a WAL-mode connection with foreign keys on and
+`sqlite3.Row` rows; `init_schema` creates all base tables idempotently.
+The FTS table is added by search.py (Task 5).
+"""
+import sqlite3
+from pathlib import Path
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS items(
+  id INTEGER PRIMARY KEY,
+  type TEXT NOT NULL DEFAULT 'item',
+  title TEXT NOT NULL DEFAULT '',
+  creators TEXT NOT NULL DEFAULT '[]',
+  date TEXT,
+  url TEXT,
+  abstract TEXT,
+  doi TEXT,
+  zotero_key TEXT UNIQUE,
+  created TEXT NOT NULL,
+  modified TEXT NOT NULL,
+  deleted_at TEXT
+);
+CREATE TABLE IF NOT EXISTS item_fields(
+  item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  value TEXT NOT NULL,
+  PRIMARY KEY(item_id, name)
+);
+CREATE TABLE IF NOT EXISTS attachments(
+  id INTEGER PRIMARY KEY,
+  item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL CHECK(kind IN ('pdf','snapshot','other','link')),
+  filename TEXT,
+  sha256 TEXT,
+  size INTEGER,
+  ext TEXT,
+  url TEXT,
+  main_file TEXT,
+  missing INTEGER NOT NULL DEFAULT 0,
+  text_extracted INTEGER NOT NULL DEFAULT 0,
+  zotero_key TEXT UNIQUE
+);
+CREATE TABLE IF NOT EXISTS notes(
+  id INTEGER PRIMARY KEY,
+  item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL DEFAULT 'note' CHECK(kind IN ('note','annotation')),
+  body TEXT NOT NULL,
+  zotero_key TEXT UNIQUE
+);
+CREATE TABLE IF NOT EXISTS tags(
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE
+);
+CREATE TABLE IF NOT EXISTS item_tags(
+  item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+  tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+  PRIMARY KEY(item_id, tag_id)
+);
+CREATE TABLE IF NOT EXISTS collections(
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  parent_id INTEGER REFERENCES collections(id) ON DELETE SET NULL,
+  zotero_key TEXT UNIQUE
+);
+CREATE TABLE IF NOT EXISTS collection_items(
+  collection_id INTEGER NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+  item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+  PRIMARY KEY(collection_id, item_id)
+);
+CREATE TABLE IF NOT EXISTS batches(
+  id INTEGER PRIMARY KEY,
+  actor TEXT NOT NULL,
+  label TEXT NOT NULL DEFAULT '',
+  state TEXT NOT NULL DEFAULT 'applied' CHECK(state IN ('applied','proposed','reverted')),
+  ts TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS changes(
+  id INTEGER PRIMARY KEY,
+  batch_id INTEGER NOT NULL REFERENCES batches(id) ON DELETE CASCADE,
+  entity TEXT NOT NULL,
+  entity_id TEXT NOT NULL,
+  field TEXT NOT NULL,
+  old TEXT,
+  new TEXT,
+  ts TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS tokens(
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE,
+  scope TEXT NOT NULL CHECK(scope IN ('read','write')),
+  hash TEXT NOT NULL,
+  created TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS settings(
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+"""
+
+
+def connect(db_path: Path | str) -> sqlite3.Connection:
+    conn = sqlite3.connect(str(db_path))
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA foreign_keys=ON")
+    return conn
+
+
+def init_schema(conn: sqlite3.Connection) -> None:
+    conn.executescript(SCHEMA)
+    conn.commit()

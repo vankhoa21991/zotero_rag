@@ -48,11 +48,11 @@
 - Tables (all created by `init_schema`): `items(id, type, title, creators JSON, date, url, abstract, doi, zotero_key UNIQUE NULL, created, modified, deleted_at NULL)`, `item_fields(item_id, name, value, PK(item_id,name))` for custom/extra metadata, `attachments(id, item_id, kind 'pdf'|'snapshot'|'other'|'link', filename, sha256 NULL, size NULL, ext, url NULL, missing INTEGER DEFAULT 0, text_extracted INTEGER DEFAULT 0, zotero_key UNIQUE NULL)` (a `link` has a `url` and no file; `missing=1` means metadata imported but the file was not found), `notes(id, item_id, kind 'note'|'annotation' DEFAULT 'note', body, zotero_key UNIQUE NULL)`, `tags(id, name UNIQUE)`, `item_tags(item_id, tag_id)`, `collections(id, name, parent_id NULL, zotero_key UNIQUE NULL)`, `collection_items(collection_id, item_id)`, `batches(id, actor, label, state 'applied'|'proposed'|'reverted', ts)`, `changes(id, batch_id, entity, entity_id, field, old JSON, new JSON, ts)`, `tokens(id, name, scope, hash, created)`, `settings(key, value)`. (The FTS table is added in Task 5, not here.)
 - `conftest.py` provides fixtures `conn` (in-memory DB with schema) and `settings` (tmp_path data dir).
 
-- [ ] **Step 1:** Write `test_init_schema_creates_tables_and_is_idempotent` (calls `init_schema` twice; asserts every table name above exists and foreign keys are on) and `test_load_settings_env_override` (`SHELF_DATA_DIR=/x` -> `db_path == Path("/x/shelf.db")`, `files_dir == Path("/x/files")`).
-- [ ] **Step 2:** Run `pytest tests/shelf/test_db.py -v`; expect FAIL (import error).
-- [ ] **Step 3:** Implement `config.py`, `db.py`, packaging changes. Run `uv pip install -e ".[server,pdf]"`.
-- [ ] **Step 4:** Run `pytest tests/shelf/test_db.py -v`; expect PASS.
-- [ ] **Step 5:** Commit `feat(shelf): package skeleton, settings, schema`.
+- [x] **Step 1:** Write `test_init_schema_creates_tables_and_is_idempotent` (calls `init_schema` twice; asserts every table name above exists and foreign keys are on) and `test_load_settings_env_override` (`SHELF_DATA_DIR=/x` -> `db_path == Path("/x/shelf.db")`, `files_dir == Path("/x/files")`).
+- [x] **Step 2:** Run `pytest tests/shelf/test_db.py -v`; expect FAIL (import error).
+- [x] **Step 3:** Implement `config.py`, `db.py`, packaging changes. Run `uv pip install -e ".[server,pdf]"`.
+- [x] **Step 4:** Run `pytest tests/shelf/test_db.py -v`; expect PASS.
+- [x] **Step 5:** Commit `feat(shelf): package skeleton, settings, schema`.
 
 ### Task 2: File store
 
