@@ -6,6 +6,9 @@ token exactly once.
 """
 import argparse
 import getpass
+import json
+from datetime import datetime
+from pathlib import Path
 
 from shelf import auth, config, db
 
@@ -36,7 +39,51 @@ def main(argv: list[str] | None = None) -> int:
     e.add_argument("--limit", type=int, default=None,
                    help="process at most N attachments (for testing)")
 
+    zi = sub.add_parser("import-zotero",
+                        help="import a Zotero library into a running shelf server")
+    zi.add_argument("--zotero-dir", default=str(Path.home() / "Zotero"),
+                    help="directory containing zotero.sqlite and storage/ (default: ~/Zotero)")
+    zi.add_argument("--server", required=True,
+                    help="shelf server base URL, e.g. http://127.0.0.1:8321")
+    zi.add_argument("--token", default=None, help="write token (prompted if omitted)")
+    zi.add_argument("--dry-run", action="store_true", help="read and count, send nothing")
+
     args = p.parse_args(argv)
+
+    if args.cmd == "import-zotero":
+        from shelf import importer
+        from shelf.zotero_reader import ZoteroReader
+
+        zdir = Path(args.zotero_dir).expanduser()
+        db_path = zdir / "zotero.sqlite"
+        if not db_path.exists():
+            print(f"error: {db_path} not found")
+            return 1
+        token = args.token or getpass.getpass("shelf write token: ")
+        client = importer.ApiClient(args.server, token)
+        try:
+            with ZoteroReader(db_path, zdir / "storage") as reader:
+                rep = importer.import_zotero(
+                    reader,
+                    client,
+                    dry_run=args.dry_run,
+                    progress=lambda stage, done, total: print(
+                        f"\r{stage}: {done}/{total}", end="", flush=True
+                    ),
+                )
+        finally:
+            client.close()
+        if not args.dry_run:
+            print()
+        text = rep.render()
+        print(text)
+        ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+        txt_path = Path(f"zotero-import-report-{ts}.txt")
+        json_path = Path(f"zotero-import-report-{ts}.json")
+        txt_path.write_text(text + "\n", encoding="utf-8")
+        json_path.write_text(json.dumps(rep.to_dict(), indent=2), encoding="utf-8")
+        print(f"report written to {txt_path} and {json_path}")
+        return 1 if rep.failures else 0
 
     if args.cmd == "serve":
         import uvicorn

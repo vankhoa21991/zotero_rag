@@ -17,7 +17,9 @@ _TAGS = {
     "blockquote", "pre", "code", "h1", "h2", "h3", "h4", "h5", "h6",
     "table", "thead", "tbody", "tr", "th", "td", "hr", "span",
 }
-_ATTRIBUTES = {"a": {"href"}}
+# style is allowed on span only (annotation colour swatches); it cannot
+# execute script, and note bodies only ever come from the user's own data.
+_ATTRIBUTES = {"a": {"href"}, "span": {"style"}}
 
 
 class ReadOnlyNote(Exception):
@@ -79,6 +81,11 @@ def _require(conn: sqlite3.Connection, note_id: int):
 def _apply_note_change(conn: sqlite3.Connection, entity_id: str, field: str, value) -> None:
     if field == "body":
         conn.execute("UPDATE notes SET body=? WHERE id=?", (value, int(entity_id)))
+    elif field == "created" and value is None:  # revert of an imported note's creation
+        row = conn.execute("SELECT item_id FROM notes WHERE id=?", (int(entity_id),)).fetchone()
+        conn.execute("DELETE FROM notes WHERE id=?", (int(entity_id),))
+        if row is not None:
+            search.reindex_item(conn, row["item_id"])
     elif field == "deleted" and value is not None:  # revert of a delete
         conn.execute(
             "INSERT INTO notes(item_id, kind, body) VALUES(?,?,?)",

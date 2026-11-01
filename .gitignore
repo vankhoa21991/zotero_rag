@@ -3,3 +3,5 @@ __pycache__/
 .venv/
 data/
 items.json
+zotero-import-report-*.txt
+zotero-import-report-*.json

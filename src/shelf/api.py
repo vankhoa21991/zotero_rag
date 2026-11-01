@@ -37,6 +37,7 @@ from shelf import (
     db,
     extract,
     files as filestore,
+    importer,
     items,
     notes,
     search,
@@ -460,6 +461,53 @@ def build_router() -> APIRouter:
         if row["missing"] or path is None or not path.exists():
             raise HTTPException(status_code=404, detail="missing", headers={"X-Missing": "true"})
         return FileResponse(path, filename=row["filename"], media_type="application/octet-stream")
+
+    # ---------- zotero import (Task 11) ----------
+    @r.post("/import/collections")
+    def import_collections(
+        body: list[dict[str, Any]], actor: dict = Depends(get_auth), conn=Depends(get_conn)
+    ):
+        for c in body:
+            if not c.get("zotero_key") or not c.get("name"):
+                raise HTTPException(status_code=400, detail="zotero_key and name are required")
+        out = importer.import_collections(conn, body, actor=importer.IMPORT_ACTOR)
+        conn.commit()
+        return out
+
+    @r.post("/import/item")
+    def import_item(body: dict[str, Any], actor: dict = Depends(get_auth), conn=Depends(get_conn)):
+        if not body.get("zotero_key"):
+            raise HTTPException(status_code=400, detail="zotero_key is required")
+        try:
+            out = importer.import_item(conn, body, actor=importer.IMPORT_ACTOR)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        conn.commit()
+        return out
+
+    @r.put("/import/attachment/{zotero_key}")
+    async def import_attachment(
+        zotero_key: str,
+        request: Request,
+        actor: dict = Depends(get_auth),
+        settings: Settings = Depends(get_settings),
+        conn=Depends(get_conn),
+    ):
+        att = conn.execute("SELECT * FROM attachments WHERE zotero_key=?", (zotero_key,)).fetchone()
+        if att is None:
+            raise HTTPException(status_code=404, detail="unknown attachment key; import the item first")
+        data = await request.body()
+        if att["kind"] == "snapshot" and not zipfile.is_zipfile(io.BytesIO(data)):
+            raise HTTPException(status_code=400, detail="snapshot must be a zip archive")
+        ext = att["ext"] or ("zip" if att["kind"] == "snapshot" else "bin")
+        sha, size = filestore.put(settings.files_dir, data, ext)
+        conn.execute(
+            "UPDATE attachments SET sha256=?, size=?, missing=0 WHERE id=?", (sha, size, att["id"])
+        )
+        conn.commit()
+        if att["kind"] in ("pdf", "snapshot"):
+            schedule_extraction(settings, att["id"])
+        return {"ok": True, "sha256": sha, "size": size}
 
     return r
 
