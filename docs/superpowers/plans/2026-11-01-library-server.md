@@ -62,11 +62,11 @@
 - Consumes: `Settings.files_dir`.
 - Produces: `files.put(files_dir: Path, data: bytes | BinaryIO, ext: str) -> tuple[str, int]` (returns `(sha256, size)`; second put of identical bytes writes nothing new); `files.path_for(files_dir: Path, sha256: str, ext: str) -> Path`; `files.exists(files_dir, sha256, ext) -> bool`; `files.zip_directory(src_dir: Path) -> bytes` (for snapshots: HTML + assets, relative paths kept); `files.read_zip_member(files_dir, sha256, member: str) -> tuple[bytes, str]` (bytes + guessed content type; rejects `..` and absolute members with `ValueError`).
 
-- [ ] **Step 1:** Tests: `test_put_dedups_identical_content` (two puts -> one file, same hash), `test_path_layout` (`files/ab/<hash>.pdf`), `test_zip_roundtrip_keeps_relative_assets`, `test_read_zip_member_rejects_traversal` (`"../x"` raises `ValueError`).
-- [ ] **Step 2:** Run; expect FAIL.
-- [ ] **Step 3:** Implement; write via temp file + `os.replace` so partial writes never appear.
-- [ ] **Step 4:** Run; expect PASS.
-- [ ] **Step 5:** Commit `feat(shelf): content-addressed file store`.
+- [x] **Step 1:** Tests: `test_put_dedups_identical_content` (two puts -> one file, same hash), `test_path_layout` (`files/ab/<hash>.pdf`), `test_zip_roundtrip_keeps_relative_assets`, `test_read_zip_member_rejects_traversal` (`"../x"` raises `ValueError`).
+- [x] **Step 2:** Run; expect FAIL.
+- [x] **Step 3:** Implement; write via temp file + `os.replace` so partial writes never appear.
+- [x] **Step 4:** Run; expect PASS.
+- [x] **Step 5:** Commit `feat(shelf): content-addressed file store`.
 
 ### Task 3: Items, custom fields, change log, trash
 
@@ -76,11 +76,11 @@
 - Produces (`changelog.py`): `begin_batch(conn, actor: str, label: str = "", state: str = "applied") -> int`; `record(conn, batch_id: int, entity: str, entity_id: int | str, field: str, old, new) -> None`; `revert_batch(conn, batch_id: int) -> None` (applies `old` values in reverse order via a registry `register_applier(entity, fn)` so later modules (collections, tags, notes) plug in; sets state `reverted`; reverting a `proposed` batch just marks it reverted); `apply_batch(conn, batch_id) -> None` (proposed -> applied by applying `new` values; used by project 3); `list_batches(conn, limit=50) -> list[dict]`.
 - Produces (`items.py`): `CORE_FIELDS = ("type","title","creators","date","url","abstract","doi")`; `create_item(conn, data: dict, actor: str, batch_id: int | None = None) -> int` (core keys as columns; any other key becomes a custom field; missing title allowed); `get_item(conn, item_id) -> dict | None` (core fields, `fields: dict[str,str]`, `tags`, `collections`, `notes`, `attachments`); `update_item(conn, item_id, changes: dict, actor: str, batch_id: int | None = None) -> int` (returns batch id; core key -> column, other key -> custom field, value `None` removes a custom field; empty dict is a no-op; creates its own batch when `batch_id` is None); `bulk_update(conn, item_ids: list[int], changes: dict, actor) -> int` (one batch); `trash_item(conn, item_id, actor, batch_id=None)`, `restore_item(...)`; `list_items(conn, *, collection_id=None, tag=None, type=None, trashed=False, limit=50, offset=0) -> list[dict]` (summary rows ordered by `modified` desc).
 
-- [ ] **Step 1:** Tests: `test_update_core_and_custom_field_roundtrip` (set `title`, add custom `"Reading status": "to read"`, `get_item` shows both); `test_revert_batch_restores_old_values` (including removed custom field and changed title); `test_untitled_and_unicode_items` (title `""` and `"📚 résumé"` create/list/update fine); `test_bulk_update_is_one_batch`; `test_trash_hides_from_default_list_and_restore_returns`; `test_apply_proposed_batch_changes_nothing_until_applied`.
-- [ ] **Step 2:** Run; expect FAIL.
-- [ ] **Step 3:** Implement. `record` stores JSON-encoded old/new; `modified` is bumped on every item change; appliers for entity `item` (fields, deleted_at) are registered in `items.py`.
-- [ ] **Step 4:** Run; expect PASS.
-- [ ] **Step 5:** Commit `feat(shelf): items, custom metadata, change log with revert`.
+- [x] **Step 1:** Tests: `test_update_core_and_custom_field_roundtrip` (set `title`, add custom `"Reading status": "to read"`, `get_item` shows both); `test_revert_batch_restores_old_values` (including removed custom field and changed title); `test_untitled_and_unicode_items` (title `""` and `"📚 résumé"` create/list/update fine); `test_bulk_update_is_one_batch`; `test_trash_hides_from_default_list_and_restore_returns`; `test_apply_proposed_batch_changes_nothing_until_applied`.
+- [x] **Step 2:** Run; expect FAIL.
+- [x] **Step 3:** Implement. `record` stores JSON-encoded old/new; `modified` is bumped on every item change; appliers for entity `item` (fields, deleted_at) are registered in `items.py`.
+- [x] **Step 4:** Run; expect PASS.
+- [x] **Step 5:** Commit `feat(shelf): items, custom metadata, change log with revert`.
 
 ### Task 4: Collections, tags, notes
 
