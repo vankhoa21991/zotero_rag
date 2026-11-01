@@ -116,11 +116,11 @@
 **Interfaces:**
 - Produces: `set_password(conn, password: str) -> None` (scrypt, salted, in `settings`); `verify_password(conn, password) -> bool`; `make_session(secret: bytes, ttl_s: int = 30*86400, now=time.time) -> str` / `check_session(secret, cookie, now=time.time) -> bool` (HMAC-signed, expiry); `session_secret(conn) -> bytes` (generated once, stored); `create_token(conn, name: str, scope: str) -> str` (returns the raw token once; only a hash is stored; scope `read`|`write`, else `ValueError`); `check_token(conn, raw: str) -> dict | None` (`{"name","scope"}`); `revoke_token(conn, token_id)`; `LoginThrottle(max_fails=5, window_s=300)` with `.allow(ip, now) -> bool` and `.fail(ip, now)`.
 
-- [ ] **Step 1:** Tests: password roundtrip and wrong password; expired and tampered session rejected; token create/check/revoke, raw token not stored in DB; invalid scope raises; throttle blocks the 6th failure inside the window and allows after it.
-- [ ] **Step 2:** Run; expect FAIL.
-- [ ] **Step 3:** Implement with `hashlib.scrypt`, `hmac.compare_digest`.
-- [ ] **Step 4:** Run; expect PASS.
-- [ ] **Step 5:** Commit `feat(shelf): password, session and API token auth`.
+- [x] **Step 1:** Tests: password roundtrip and wrong password; expired and tampered session rejected; token create/check/revoke, raw token not stored in DB; invalid scope raises; throttle blocks the 6th failure inside the window and allows after it.
+- [x] **Step 2:** Run; expect FAIL.
+- [x] **Step 3:** Implement with `hashlib.scrypt`, `hmac.compare_digest`.
+- [x] **Step 4:** Run; expect PASS.
+- [x] **Step 5:** Commit `feat(shelf): password, session and API token auth`.
 
 ### Task 7: JSON API
 
