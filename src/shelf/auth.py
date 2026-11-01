@@ -86,6 +86,13 @@ def check_session(secret: bytes, cookie: str, now: float = time.time) -> bool:
     return expires >= now
 
 
+def snapshot_sig(secret: bytes, attachment_id: int) -> str:
+    """Signature allowing cookie-less access to one snapshot's /s/ members."""
+    return hmac.new(
+        secret, f"snapshot.{attachment_id}".encode(), hashlib.sha256
+    ).hexdigest()[:32]
+
+
 def create_token(conn: sqlite3.Connection, name: str, scope: str) -> str:
     """Create a named token; returns the raw token (only its hash is stored)."""
     if scope not in ("read", "write"):

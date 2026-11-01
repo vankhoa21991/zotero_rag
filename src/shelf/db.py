@@ -1,8 +1,9 @@
 """SQLite connection and schema for shelf.
 
-Contract: `connect` returns a WAL-mode connection with foreign keys on and
-`sqlite3.Row` rows; `init_schema` creates all base tables idempotently.
-The FTS table is added by search.py (Task 5).
+Contract: `connect` returns a WAL-mode connection with foreign keys on,
+`sqlite3.Row` rows and `check_same_thread=False` (the API opens one
+connection per request, and FastAPI may resolve dependencies in a different
+thread than the handler); `init_schema` creates all tables idempotently.
 """
 import sqlite3
 from pathlib import Path
@@ -107,8 +108,8 @@ CREATE TABLE IF NOT EXISTS attachment_text(
 """
 
 
-def connect(db_path: Path | str) -> sqlite3.Connection:
-    conn = sqlite3.connect(str(db_path))
+def connect(db_path: Path | str, check_same_thread: bool = False) -> sqlite3.Connection:
+    conn = sqlite3.connect(str(db_path), check_same_thread=check_same_thread)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
