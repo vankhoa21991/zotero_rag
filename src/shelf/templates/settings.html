@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>Settings</h1>
+<h2>API tokens</h2>
+<form id="token-form">
+  <input name="name" placeholder="token name" required>
+  <select name="scope"><option value="write">write</option><option value="read">read</option></select>
+  <button type="submit">Create token</button>
+</form>
+<pre id="new-token" hidden></pre>
+<table>
+  <tr><th>Name</th><th>Scope</th><th>Created</th><th></th></tr>
+  {% for t in tokens %}
+  <tr><td>{{ t.name }}</td><td>{{ t.scope }}</td><td>{{ t.created }}</td>
+      <td><button class="revoke" data-id="{{ t.id }}">Revoke</button></td></tr>
+  {% else %}<tr><td colspan="4" class="muted">No tokens yet.</td></tr>{% endfor %}
+</table>
+{% endblock %}

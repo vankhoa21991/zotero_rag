@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>Library</h1>
+<form method="get" action="/" class="filters">
+  <input type="search" name="q" value="{{ q or '' }}" placeholder="Search title, text, notes…">
+  <select name="type"><option value="">all types</option>
+    {% for t in types %}<option value="{{ t }}" {{ 'selected' if t == type else '' }}>{{ t }}</option>{% endfor %}
+  </select>
+  <select name="tag"><option value="">all tags</option>
+    {% for t in tags %}<option value="{{ t.name }}" {{ 'selected' if t.name == tag else '' }}>{{ t.name }}</option>{% endfor %}
+  </select>
+  <button type="submit">Filter</button>
+</form>
+<div class="layout">
+  <aside>
+    <h2>Collections</h2>
+    <ul class="tree">
+      <li><a href="/">{{ 'All items' if not collection else '← all' }}</a></li>
+      {% for c in collections %}
+      <li><a href="/?collection={{ c.id }}" {{ 'class="active"' if c.id == collection else '' }}>{{ c.name }}</a></li>
+      {% endfor %}
+    </ul>
+  </aside>
+  <section id="item-list">
+    {% for it in rows %}
+    <div class="item-row">
+      <label class="sel"><input type="checkbox" value="{{ it.id }}"></label>
+      <a href="/items/{{ it.id }}">{{ it.title or '(untitled)' }}</a>
+      <span class="muted">{{ it.type }}{% if it.date %} · {{ it.date }}{% endif %}</span>
+    </div>
+    {% else %}
+    <p class="muted">No items{% if q %} match “{{ q }}”{% endif %}.</p>
+    {% endfor %}
+  </section>
+</div>
+<div id="bulk" hidden>
+  <span id="bulk-count"></span>
+  <input id="bulk-tag" placeholder="tag(s), comma-separated">
+  <button data-bulk="tag">Add tags</button>
+  <select id="bulk-collection">
+    {% for c in collections %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+  </select>
+  <button data-bulk="move">Move to collection</button>
+  <input id="bulk-field-name" placeholder="field name">
+  <input id="bulk-field-value" placeholder="value">
+  <button data-bulk="field">Set field for all</button>
+</div>
+{% endblock %}

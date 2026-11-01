@@ -145,6 +145,25 @@ def test_snapshot_member_traversal_404_and_csp_header(env):
     assert c.get(f"{base}/missing.html").status_code == 404
 
 
+def test_snapshot_with_non_zip_display_name_still_serves(env):
+    """A snapshot uploaded as 'example.org' is stored as a zip and its members serve."""
+    c, w = env["client"], _h(env["write"])
+    iid = c.post("/api/items", json={"title": "s"}, headers=w).json()["id"]
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("index.html", "<p>hi</p>")
+    r = c.post(
+        "/api/files",
+        data={"item_id": str(iid), "kind": "snapshot", "filename": "example.org", "main_file": "index.html"},
+        files={"file": ("s.zip", buf, "application/zip")},
+        headers=w,
+    )
+    assert r.status_code == 201
+    item = c.get(f"/api/items/{iid}", headers=w).json()
+    view = [a for a in item["attachments"] if a["id"] == r.json()["id"]][0]["view_url"]
+    assert c.get(view).status_code == 200
+
+
 def test_snapshot_asset_served_without_cookie_with_valid_sig_and_403_with_bad_sig(env):
     c = env["client"]
     iid, att = _upload_snapshot(env)

@@ -352,7 +352,8 @@ def build_router() -> APIRouter:
         if conn.execute("SELECT 1 FROM items WHERE id=?", (item_id,)).fetchone() is None:
             raise HTTPException(status_code=404, detail="no such item")
         data = file.file.read()
-        ext = Path(filename).suffix.lstrip(".") or "bin"
+        # snapshot content is always a zip, regardless of the display filename
+        ext = "zip" if kind == "snapshot" else (Path(filename).suffix.lstrip(".") or "bin")
         sha, size = filestore.put(settings.files_dir, data, ext)
         cur = conn.execute(
             "INSERT INTO attachments(item_id, kind, filename, ext, sha256, size, main_file)"

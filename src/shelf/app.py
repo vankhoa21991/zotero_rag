@@ -7,11 +7,13 @@ created if missing, and the session secret is generated on first run.
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from shelf import api, auth, db, web
+from shelf import api, auth, config, db, web
 from shelf.config import Settings
 
 
-def create_app(settings: Settings) -> FastAPI:
+def create_app(settings: Settings | None = None) -> FastAPI:
+    if settings is None:
+        settings = config.load_settings()
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     conn = db.connect(settings.db_path)
     db.init_schema(conn)

@@ -1,25 +1,41 @@
 {% extends "base.html" %}
-{% block title %}{{ item.title if item else "missing" }} &mdash; shelf{% endblock %}
+{% block title %}{{ item.title if item else 'missing' }} — shelf{% endblock %}
 {% block body %}
 {% if item %}
-  <h1>{{ item.title }}</h1>
-  <dl>
-    {% if item.type %}<dt>Type</dt><dd>{{ item.type }}</dd>{% endif %}
-    {% if item.date %}<dt>Date</dt><dd>{{ item.date }}</dd>{% endif %}
-    {% if item.url %}<dt>URL</dt><dd><a href="{{ item.url }}">{{ item.url }}</a></dd>{% endif %}
-    {% if item.doi %}<dt>DOI</dt><dd>{{ item.doi }}</dd>{% endif %}
-  </dl>
-  {% if item.abstract %}<h2>Abstract</h2><p>{{ item.abstract }}</p>{% endif %}
-  <h2>Files</h2>
-  <ul>
-    {% for att in item.attachments %}
-      <li>{{ att.filename or att.kind }}
-        {% if att.kind == "link" and att.url %}<a href="{{ att.url }}">(open link)</a>{% endif %}
-        {% if att.view_url %}<a href="{{ att.view_url }}">(view snapshot)</a>{% endif %}
-      </li>
-    {% endfor %}
-  </ul>
+<h1>{{ item.title or '(untitled)' }}</h1>
+<dl class="meta">
+  {% if item.type %}<dt>Type</dt><dd>{{ item.type }}</dd>{% endif %}
+  {% if item.date %}<dt>Date</dt><dd>{{ item.date }}</dd>{% endif %}
+  {% if item.url %}<dt>URL</dt><dd><a href="{{ item.url }}">{{ item.url }}</a></dd>{% endif %}
+  {% if item.doi %}<dt>DOI</dt><dd>{{ item.doi }}</dd>{% endif %}
+</dl>
+{% if item.abstract %}<h2>Abstract</h2><p>{{ item.abstract }}</p>{% endif %}
+
+<h2>Files</h2>
+<ul class="files">
+  {% for att in item.attachments %}
+  <li>
+    <strong>{{ att.filename or att.kind }}</strong>
+    {% if att.kind == "link" and att.url %}<a href="{{ att.url }}" rel="noopener">open link ↗</a>{% endif %}
+    {% if att.sha256 and not att.missing %}<a href="/api/files/{{ att.id }}">download</a>{% endif %}
+    {% if att.missing %}<span class="missing">file missing</span>{% endif %}
+  </li>
+  {% if att.view_url %}
+  <li><iframe class="snapshot" src="{{ att.view_url }}" sandbox="allow-same-origin" title="snapshot of {{ att.filename }}"></iframe></li>
+  {% endif %}
+  {% endfor %}
+</ul>
+
+<h2>Notes</h2>
+{% for n in item.notes %}
+<div class="note {{ 'annotation' if n.kind == 'annotation' else '' }}">
+  {% if n.kind == 'annotation' %}<span class="badge">annotation — read-only</span>{% endif %}
+  <div class="note-body">{{ n.body | safe }}</div>
+</div>
+{% else %}<p class="muted">No notes.</p>{% endfor %}
+
+<p><a href="/">&larr; back to library</a></p>
 {% else %}
-  <h1>Item not found</h1>
+<h1>Item not found</h1>
 {% endif %}
 {% endblock %}
