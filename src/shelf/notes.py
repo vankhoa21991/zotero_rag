@@ -29,6 +29,8 @@ def sanitize(html: str) -> str:
 
 
 def add(conn: sqlite3.Connection, item_id: int, body: str, actor: str = "user", kind: str = "note") -> int:
+    if conn.execute("SELECT 1 FROM items WHERE id=?", (item_id,)).fetchone() is None:
+        raise ValueError(f"no such item: {item_id}")
     cur = conn.execute(
         "INSERT INTO notes(item_id, kind, body) VALUES(?,?,?)",
         (item_id, kind, sanitize(body)),

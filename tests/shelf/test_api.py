@@ -205,6 +205,20 @@ def test_annotation_note_patch_409(env):
     assert c.delete(f"/api/notes/{nid}", headers=w).status_code == 409
 
 
+def test_note_on_missing_item_returns_404(env):
+    c, w = env["client"], _h(env["write"])
+    r = c.post("/api/items/9999/notes", json={"body": "hi"}, headers=w)
+    assert r.status_code == 404
+
+
+def test_create_with_null_custom_field_is_skipped(env):
+    c, w = env["client"], _h(env["write"])
+    iid = c.post(
+        "/api/items", json={"title": "T", "Status": None, "Venue": "ICML"}, headers=w
+    ).json()["id"]
+    assert c.get(f"/api/items/{iid}", headers=w).json()["fields"] == {"Venue": "ICML"}
+
+
 def test_validation_errors_return_400_and_missing_items_404(env):
     c, w = env["client"], _h(env["write"])
     assert c.post("/api/items", json={"title": 123}, headers=w).status_code == 400

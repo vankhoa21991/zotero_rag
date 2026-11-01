@@ -82,6 +82,8 @@ def create_item(conn: sqlite3.Connection, data: dict, actor: str, batch_id: int 
     for name, value in data.items():
         if name in CORE_FIELDS:
             continue
+        if value is None:
+            continue  # null means "no such field", not the string 'None'
         conn.execute(
             "INSERT INTO item_fields(item_id, name, value) VALUES(?,?,?)",
             (iid, name, str(value)),

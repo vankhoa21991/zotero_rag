@@ -86,6 +86,14 @@ def test_update_missing_item_raises(conn):
         pass
 
 
+def test_create_item_skips_null_custom_fields(conn):
+    iid = items.create_item(
+        conn, {"title": "T", "Status": None, "Venue": "ICML"}, actor="user"
+    )
+    conn.commit()
+    assert items.get_item(conn, iid)["fields"] == {"Venue": "ICML"}
+
+
 def test_create_item_is_recorded_and_undoable(conn):
     from shelf import changelog
 

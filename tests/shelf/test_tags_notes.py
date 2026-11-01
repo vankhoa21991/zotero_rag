@@ -90,6 +90,11 @@ def test_note_add_sanitizes_body(conn):
     assert "<script" not in body and "<p>ok</p>" in body
 
 
+def test_note_add_to_missing_item_raises(conn):
+    with pytest.raises(ValueError):
+        notes.add(conn, 999, "hello", actor="user")
+
+
 def test_annotation_note_update_and_delete_raise_read_only(conn):
     iid = items.create_item(conn, {"title": "T"}, actor="user")
     nid = notes.add(conn, iid, "<p>p.3: highlight</p>", actor="import", kind="annotation")

@@ -303,7 +303,10 @@ def build_router() -> APIRouter:
     # ---------- notes ----------
     @r.post("/items/{item_id}/notes", status_code=201)
     def add_note(item_id: int, body: NoteIn, actor: dict = Depends(get_auth), conn=Depends(get_conn)):
-        nid = notes.add(conn, item_id, body.body, actor["actor"], kind="note")
+        try:
+            nid = notes.add(conn, item_id, body.body, actor["actor"], kind="note")
+        except ValueError as e:
+            raise HTTPException(status_code=404, detail=str(e))
         conn.commit()
         return {"id": nid}
 
