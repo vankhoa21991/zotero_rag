@@ -199,11 +199,11 @@
 
 **Interfaces:** Consumes everything.
 
-- [ ] **Step 1:** Write `docs/shelf.md`: install (`uv pip install -e ".[server,pdf]"`), set data dir, `shelf set-password`, run behind a reverse proxy with HTTPS (Caddy example, noting the home-server/VPN access options; state that Caddy has no request-size limit by default while nginx needs `client_max_body_size 0;` or uploads over 1 MB fail with 413), backup = copy `shelf.db` (use `sqlite3 .backup`) plus `files/`, creating tokens, running the import, re-running it, what re-import will and won't touch.
-- [ ] **Step 2:** On a scratch data dir, start the server, run `shelf import-zotero --dry-run` against the real `~/Zotero`; read the counts with the user (these are the numbers that replace the rough 2,424 / 824 / 1,438) before the real run.
-- [ ] **Step 3:** After the user agrees, run the real import into the server's data dir; record `git`-ignored report files; run `shelf extract`.
-- [ ] **Step 4:** Verify against the spec's Done list: report's row table sums to the Zotero row count and annotations imported == 1,674 (or the current count); search finds a known title and a word that appears only inside a PDF; move a few items between collections and revert the batch; log in from a second machine; `sha256sum ~/Zotero/zotero.sqlite` and `stat` mtime identical before and after.
-- [ ] **Step 5:** Commit `docs(shelf): deployment guide`.
+- [x] **Step 1:** Write `docs/shelf.md`: install (`uv pip install -e ".[server,pdf]"`), set data dir, `shelf set-password`, run behind a reverse proxy with HTTPS (Caddy example, noting the home-server/VPN access options; state that Caddy has no request-size limit by default while nginx needs `client_max_body_size 0;` or uploads over 1 MB fail with 413), backup = copy `shelf.db` (use `sqlite3 .backup`) plus `files/`, creating tokens, running the import, re-running it, what re-import will and won't touch.
+- [x] **Step 2:** On a scratch data dir, start the server, run `shelf import-zotero --dry-run` against the real `~/Zotero`; read the counts with the user (these are the numbers that replace the rough 2,424 / 824 / 1,438) before the real run.
+- [x] **Step 3:** After the user agrees, run the real import into the server's data dir; record `git`-ignored report files; run `shelf extract`.
+- [x] **Step 4:** Verify against the spec's Done list: report's row table sums to the Zotero row count and annotations imported == 1,674 (or the current count); search finds a known title and a word that appears only inside a PDF; move a few items between collections and revert the batch; log in from a second machine; `sha256sum ~/Zotero/zotero.sqlite` and `stat` mtime identical before and after.
+- [x] **Step 5:** Commit `docs(shelf): deployment guide`.
 
 ---
 
