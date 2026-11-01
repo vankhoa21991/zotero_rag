@@ -84,3 +84,49 @@ def test_update_missing_item_raises(conn):
         assert False, "expected ValueError"
     except ValueError:
         pass
+
+
+def test_create_item_is_recorded_and_undoable(conn):
+    from shelf import changelog
+
+    iid = items.create_item(conn, {"title": "Undoable"}, actor="user")
+    conn.commit()
+    bid = conn.execute("SELECT id FROM batches ORDER BY id DESC LIMIT 1").fetchone()["id"]
+    changelog.revert_batch(conn, bid)
+    conn.commit()
+    # reverting a creation trashes the item rather than hard-deleting it
+    assert items.list_items(conn) == []
+    assert [r["id"] for r in items.list_items(conn, trashed=True)] == [iid]
+
+
+def test_update_rejects_reserved_field_names(conn):
+    iid = items.create_item(conn, {"title": "T"}, actor="user")
+    conn.commit()
+    for bad in ("id", "zotero_key", "created", "modified", "deleted_at"):
+        try:
+            items.update_item(conn, iid, {bad: "x"}, actor="user")
+            assert False, f"expected ValueError for {bad}"
+        except ValueError:
+            pass
+
+
+def test_update_rejects_non_scalar_custom_values(conn):
+    iid = items.create_item(conn, {"title": "T"}, actor="user")
+    conn.commit()
+    try:
+        items.update_item(conn, iid, {"weird": {"nested": 1}}, actor="user")
+        assert False, "expected ValueError for dict value"
+    except ValueError:
+        pass
+
+
+def test_creators_must_be_list_of_dicts_or_strings(conn):
+    iid = items.create_item(conn, {"title": "T"}, actor="user")
+    conn.commit()
+    items.update_item(conn, iid, {"creators": [{"last": "LeCun"}]}, actor="user")
+    conn.commit()
+    try:
+        items.update_item(conn, iid, {"creators": "Yann LeCun"}, actor="user")
+        assert False, "expected ValueError for string creators"
+    except ValueError:
+        pass

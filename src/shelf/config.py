@@ -15,6 +15,7 @@ DEFAULT_DATA_DIR = Path.home() / ".local" / "share" / "shelf"
 @dataclass(frozen=True)
 class Settings:
     data_dir: Path
+    cookie_secure: bool = False  # set True when served over HTTPS (SHELF_COOKIE_SECURE=1)
 
     @property
     def db_path(self) -> Path:
@@ -27,4 +28,5 @@ class Settings:
 
 def load_settings(env: Mapping[str, str] = os.environ) -> Settings:
     data_dir = Path(env.get("SHELF_DATA_DIR", str(DEFAULT_DATA_DIR)))
-    return Settings(data_dir=data_dir)
+    cookie_secure = env.get("SHELF_COOKIE_SECURE", "").lower() in ("1", "true", "yes")
+    return Settings(data_dir=data_dir, cookie_secure=cookie_secure)

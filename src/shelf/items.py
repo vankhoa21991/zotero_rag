@@ -11,10 +11,55 @@ import sqlite3
 from shelf import changelog, search
 
 CORE_FIELDS = ("type", "title", "creators", "date", "url", "abstract", "doi")
+# Custom fields may never use these names: they collide with item columns and
+# would be routed through the core-column change-log applier instead.
+RESERVED_FIELDS = set(CORE_FIELDS) | {
+    "id", "zotero_key", "created", "modified", "deleted_at",
+}
+
+
+def _validate_changes(changes: dict) -> None:
+    """Raise ValueError for reserved field names, bad creators or bad values."""
+    for name, value in changes.items():
+        if name in RESERVED_FIELDS and name not in CORE_FIELDS:
+            raise ValueError(f"reserved field name: {name!r}")
+        if value is None:  # deletion of a custom field
+            continue
+        if isinstance(value, (dict, list)) and name != "creators":
+            raise ValueError(f"field {name!r}: value must be a scalar, not {type(value).__name__}")
+    for name in CORE_FIELDS:
+        if name == "creators":
+            continue  # validated separately
+        v = changes.get(name)
+        if v is not None and not isinstance(v, str):
+            raise ValueError(f"field {name!r} must be a string")
+    if "creators" in changes and changes["creators"] is not None:
+        _validate_creators(changes["creators"])
+
+
+def _validate_creators(creators) -> None:
+    if not isinstance(creators, list):
+        raise ValueError("creators must be a list of {name} or {first, last}")
+    for c in creators:
+        if not isinstance(c, dict):
+            raise ValueError("each creator must be an object")
+        name = c.get("name")
+        first, last = c.get("first"), c.get("last")
+        ok_name = isinstance(name, str) and name.strip()
+        ok_parts = (isinstance(first, str) or first is None) and (
+            isinstance(last, str) or last is None
+        ) and (first or last)
+        if not (ok_name or ok_parts):
+            raise ValueError(f"invalid creator: {c!r}")
 
 
 def create_item(conn: sqlite3.Connection, data: dict, actor: str, batch_id: int | None = None) -> int:
-    """Insert an item; core keys become columns, other keys custom fields."""
+    """Insert an item; core keys become columns, other keys custom fields.
+
+    The creation is recorded in the change log (entity `item`, field
+    `created`) so it shows up in history and reverting it trashes the item.
+    """
+    _validate_changes(data)
     now = changelog.now_iso()
     creators = data.get("creators")
     cur = conn.execute(
@@ -33,6 +78,7 @@ def create_item(conn: sqlite3.Connection, data: dict, actor: str, batch_id: int 
         ),
     )
     iid = cur.lastrowid
+    custom = {}
     for name, value in data.items():
         if name in CORE_FIELDS:
             continue
@@ -40,6 +86,20 @@ def create_item(conn: sqlite3.Connection, data: dict, actor: str, batch_id: int 
             "INSERT INTO item_fields(item_id, name, value) VALUES(?,?,?)",
             (iid, name, str(value)),
         )
+        custom[name] = str(value)
+    if batch_id is None:
+        batch_id = changelog.begin_batch(conn, actor)
+    snapshot = {
+        "type": data.get("type") or "item",
+        "title": data.get("title") or "",
+        "creators": creators if creators is not None else [],
+        "date": data.get("date"),
+        "url": data.get("url"),
+        "abstract": data.get("abstract"),
+        "doi": data.get("doi"),
+        "fields": custom,
+    }
+    changelog.record(conn, batch_id, "item", iid, "created", None, snapshot)
     search.reindex_item(conn, iid)
     return iid
 
@@ -119,6 +179,7 @@ def update_item(conn: sqlite3.Connection, item_id: int, changes: dict, actor: st
     """Apply `changes` to one item; returns the batch id (0 if no changes)."""
     if not changes:
         return 0
+    _validate_changes(changes)
     if conn.execute("SELECT 1 FROM items WHERE id=?", (item_id,)).fetchone() is None:
         raise ValueError(f"no such item: {item_id}")
     if batch_id is None:
@@ -142,6 +203,13 @@ def bulk_update(conn: sqlite3.Connection, item_ids: list[int], changes: dict, ac
     """Apply `changes` to many items in one batch; returns the batch id."""
     if not changes or not item_ids:
         return 0
+    _validate_changes(changes)
+    missing = [
+        iid for iid in item_ids
+        if conn.execute("SELECT 1 FROM items WHERE id=?", (iid,)).fetchone() is None
+    ]
+    if missing:
+        raise ValueError(f"no such item: {missing[0]}")
     batch_id = changelog.begin_batch(conn, actor, label=f"bulk update of {len(item_ids)} items")
     for iid in item_ids:
         for field, new in changes.items():
@@ -223,6 +291,15 @@ def list_items(
 def _apply_item_change(conn: sqlite3.Connection, entity_id: str, field: str, value) -> None:
     """Change-log applier for entity 'item': core columns and custom fields."""
     iid = int(entity_id)
+    if field == "created":
+        # Reverting a creation trashes the item (soft delete, still recoverable).
+        row = conn.execute("SELECT 1 FROM items WHERE id=?", (iid,)).fetchone()
+        if row is not None and value is None:
+            conn.execute(
+                "UPDATE items SET deleted_at=?, modified=? WHERE id=? AND deleted_at IS NULL",
+                (changelog.now_iso(), changelog.now_iso(), iid),
+            )
+        return
     if field in CORE_FIELDS or field == "deleted_at":
         if field == "creators":
             value = json.dumps(value if value is not None else [])

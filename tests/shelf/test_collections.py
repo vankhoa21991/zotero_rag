@@ -63,6 +63,41 @@ def test_delete_collection_reparents_children_keeps_items(conn):
     assert [r["id"] for r in items.list_items(conn)] == [iid]
 
 
+def test_create_collection_is_undoable(conn):
+    cid = collections.create(conn, "Undoable", actor="user")
+    conn.commit()
+    bid = conn.execute("SELECT id FROM batches ORDER BY id DESC LIMIT 1").fetchone()["id"]
+    changelog.revert_batch(conn, bid)
+    conn.commit()
+    assert (
+        conn.execute("SELECT COUNT(*) c FROM collections WHERE id=?", (cid,)).fetchone()["c"] == 0
+    )
+
+
+def test_delete_collection_revert_restores_id_children_and_items(conn):
+    parent, child, grandchild = _tree(conn)
+    iid = items.create_item(conn, {"title": "T"}, actor="user")
+    collections.add_items(conn, child, [iid], actor="user")
+    conn.commit()
+    bid = collections.delete(conn, parent, actor="user")
+    conn.commit()
+
+    # after delete: children reparented, item untouched
+    assert (
+        conn.execute("SELECT parent_id FROM collections WHERE id=?", (child,)).fetchone()["parent_id"]
+        is None
+    )
+    assert [r["id"] for r in items.list_items(conn)] == [iid]
+
+    changelog.revert_batch(conn, bid)
+    conn.commit()
+    # original id restored; children back under it; item still in the child collection
+    row = conn.execute("SELECT parent_id FROM collections WHERE id=?", (parent,)).fetchone()
+    assert row is not None and row["parent_id"] is None
+    assert conn.execute("SELECT parent_id FROM collections WHERE id=?", (child,)).fetchone()["parent_id"] == parent
+    assert [r["id"] for r in items.list_items(conn, collection_id=child)] == [iid]
+
+
 def test_add_remove_items_and_counts(conn):
     a = collections.create(conn, "A", actor="user")
     i1 = items.create_item(conn, {"title": "1"}, actor="user")

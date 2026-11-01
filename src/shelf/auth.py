@@ -31,6 +31,14 @@ def set_password(conn: sqlite3.Connection, password: str) -> None:
     salt = secrets.token_bytes(16)
     dk = hashlib.scrypt(password.encode(), salt=salt, n=2**14, r=8, p=1)
     _set_setting(conn, "password", f"scrypt${salt.hex()}${dk.hex()}")
+    # bump the session generation so existing sessions stop validating
+    gen = int(_get_setting(conn, "session_gen") or 1) + 1
+    _set_setting(conn, "session_gen", str(gen))
+
+
+def session_generation(conn: sqlite3.Connection) -> int:
+    """Generation embedded in session cookies; bumped by set_password."""
+    return int(_get_setting(conn, "session_gen") or 1)
 
 
 def verify_password(conn: sqlite3.Connection, password: str) -> bool:
@@ -61,28 +69,43 @@ def session_secret(conn: sqlite3.Connection) -> bytes:
     return bytes.fromhex(raw)
 
 
-def make_session(secret: bytes, ttl_s: int = _SESSION_TTL_S, now: float = time.time) -> str:
+def make_session(
+    secret: bytes,
+    gen: int = 1,
+    ttl_s: int = _SESSION_TTL_S,
+    now: float = time.time,
+) -> str:
     if callable(now):
         now = now()
     expires = int(now + ttl_s)
-    payload = f"sess.{expires}"
+    payload = f"sess.{expires}.{gen}"
     sig = hmac.new(secret, payload.encode(), hashlib.sha256).hexdigest()
     return f"{payload}.{sig}"
 
 
-def check_session(secret: bytes, cookie: str, now: float = time.time) -> bool:
+def check_session(
+    secret: bytes,
+    cookie: str,
+    gen: int,
+    now: float = time.time,
+) -> bool:
+    """Validate a session cookie against the current generation `gen`."""
     if callable(now):
         now = now()
     parts = (cookie or "").split(".")
-    if len(parts) != 3 or parts[0] != "sess":
+    if len(parts) != 4 or parts[0] != "sess":
         return False
     try:
-        expires = int(parts[1])
+        expires, cookie_gen = int(parts[1]), int(parts[2])
     except ValueError:
         return False
-    expected = hmac.new(secret, f"sess.{expires}".encode(), hashlib.sha256).hexdigest()
-    if not hmac.compare_digest(expected, parts[2]):
+    expected = hmac.new(
+        secret, f"sess.{expires}.{cookie_gen}".encode(), hashlib.sha256
+    ).hexdigest()
+    if not hmac.compare_digest(expected, parts[3]):
         return False
+    if cookie_gen != gen:
+        return False  # password (or generation) changed since this session was issued
     return expires >= now
 
 

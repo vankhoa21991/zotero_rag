@@ -8,8 +8,11 @@ an annotation note returns 409. Snapshot members are served at
 """
 import hashlib
 import hmac
+import io
 import sqlite3
+import zipfile
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import (
     APIRouter,
@@ -60,16 +63,23 @@ def get_auth(request: Request, conn: sqlite3.Connection = Depends(get_conn)) -> 
         tok = auth.check_token(conn, authz[7:].strip())
         if tok is None:
             raise HTTPException(status_code=401, detail="invalid token")
-        info = {"actor": tok["name"], "scope": tok["scope"]}
+        info = {"actor": tok["name"], "scope": tok["scope"], "is_session": False}
     else:
         cookie = request.cookies.get(SESSION_COOKIE)
         secret = auth.session_secret(conn)
-        if not (cookie and auth.check_session(secret, cookie)):
+        gen = auth.session_generation(conn)
+        if not (cookie and auth.check_session(secret, cookie, gen)):
             raise HTTPException(status_code=401, detail="authentication required")
-        info = {"actor": "user", "scope": "write"}
+        info = {"actor": "user", "scope": "write", "is_session": True}
     if info["scope"] == "read" and request.method not in ("GET", "HEAD", "OPTIONS"):
         raise HTTPException(status_code=403, detail="read-only token")
     return info
+
+
+def _require_session(actor: dict) -> None:
+    """Token management is session-only: a leaked agent token must not mint tokens."""
+    if not actor["is_session"]:
+        raise HTTPException(status_code=403, detail="session login required")
 
 
 class BulkUpdateIn(BaseModel):
@@ -121,24 +131,28 @@ def build_router() -> APIRouter:
         return {"ok": True, "items": n}
 
     @r.get("/batches")
-    def list_batches(limit: int = Query(50, le=200), conn=Depends(get_conn)):
+    def list_batches(limit: int = Query(50, ge=1, le=200), conn=Depends(get_conn)):
         return changelog.list_batches(conn, limit)
 
     @r.post("/batches/{batch_id}/revert")
     def revert_batch(batch_id: int, actor: dict = Depends(get_auth), conn=Depends(get_conn)):
         try:
             changelog.revert_batch(conn, batch_id)
+        except changelog.ConflictError as e:
+            raise HTTPException(status_code=409, detail=str(e))
         except ValueError as e:
             raise HTTPException(status_code=404, detail=str(e))
         conn.commit()
         return {"ok": True}
 
     @r.get("/tokens")
-    def list_tokens(conn=Depends(get_conn)):
+    def list_tokens(actor: dict = Depends(get_auth), conn=Depends(get_conn)):
+        _require_session(actor)
         return [dict(t) for t in conn.execute("SELECT id, name, scope, created FROM tokens ORDER BY id")]
 
     @r.post("/tokens", status_code=201)
     def create_token(body: TokenIn, actor: dict = Depends(get_auth), conn=Depends(get_conn)):
+        _require_session(actor)
         try:
             raw = auth.create_token(conn, body.name, body.scope)
         except ValueError as e:
@@ -148,6 +162,7 @@ def build_router() -> APIRouter:
 
     @r.delete("/tokens/{token_id}")
     def delete_token(token_id: int, actor: dict = Depends(get_auth), conn=Depends(get_conn)):
+        _require_session(actor)
         auth.revoke_token(conn, token_id)
         conn.commit()
         return {"ok": True}
@@ -160,8 +175,8 @@ def build_router() -> APIRouter:
         tag: str | None = None,
         type: str | None = None,
         trashed: bool = False,
-        limit: int = Query(50, le=200),
-        offset: int = 0,
+        limit: int = Query(50, ge=1, le=200),
+        offset: int = Query(0, ge=0),
         conn=Depends(get_conn),
     ):
         if q:
@@ -180,7 +195,10 @@ def build_router() -> APIRouter:
 
     @r.post("/items", status_code=201)
     def create_item(body: dict[str, Any], actor: dict = Depends(get_auth), conn=Depends(get_conn)):
-        iid = items.create_item(conn, body, actor["actor"])
+        try:
+            iid = items.create_item(conn, body, actor["actor"])
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
         conn.commit()
         return {"id": iid}
 
@@ -198,24 +216,32 @@ def build_router() -> APIRouter:
             ):
                 main = att.get("main_file") or "index.html"
                 sig = auth.snapshot_sig(secret, att["id"])
-                att["view_url"] = f"/s/{att['id']}/{sig}/{main}"
+                att["view_url"] = f"/s/{att['id']}/{sig}/{quote(main, safe='/')}"
         return item
 
     @r.patch("/items/{item_id}")
     def patch_item(item_id: int, body: dict[str, Any], actor: dict = Depends(get_auth), conn=Depends(get_conn)):
+        if conn.execute("SELECT 1 FROM items WHERE id=?", (item_id,)).fetchone() is None:
+            raise HTTPException(status_code=404, detail=f"no such item: {item_id}")
         try:
             bid = items.update_item(conn, item_id, body, actor["actor"])
         except ValueError as e:
-            raise HTTPException(status_code=404, detail=str(e))
+            raise HTTPException(status_code=400, detail=str(e))
         conn.commit()
         return {"batch": bid}
 
     @r.post("/items/bulk-update")
     def bulk_update(body: BulkUpdateIn, actor: dict = Depends(get_auth), conn=Depends(get_conn)):
+        missing = [
+            iid for iid in body.ids
+            if conn.execute("SELECT 1 FROM items WHERE id=?", (iid,)).fetchone() is None
+        ]
+        if missing:
+            raise HTTPException(status_code=404, detail=f"no such item: {missing[0]}")
         try:
             bid = items.bulk_update(conn, body.ids, body.changes, actor["actor"])
         except ValueError as e:
-            raise HTTPException(status_code=404, detail=str(e))
+            raise HTTPException(status_code=400, detail=str(e))
         conn.commit()
         return {"batch": bid}
 
@@ -244,13 +270,33 @@ def build_router() -> APIRouter:
 
     @r.post("/items/{item_id}/tags")
     def add_tags(item_id: int, body: TagsIn, actor: dict = Depends(get_auth), conn=Depends(get_conn)):
-        bid = tags.add(conn, [item_id], body.names, actor["actor"])
+        try:
+            bid = tags.add(conn, [item_id], body.names, actor["actor"])
+        except ValueError as e:
+            raise HTTPException(status_code=404, detail=str(e))
         conn.commit()
         return {"batch": bid}
 
     @r.delete("/items/{item_id}/tags/{name}")
     def remove_tag(item_id: int, name: str, actor: dict = Depends(get_auth), conn=Depends(get_conn)):
-        bid = tags.remove(conn, [item_id], [name], actor["actor"])
+        try:
+            bid = tags.remove(conn, [item_id], [name], actor["actor"])
+        except ValueError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+        conn.commit()
+        return {"batch": bid}
+
+    class BulkTagsIn(BaseModel):
+        item_ids: list[int]
+        names: list[str]
+
+    @r.post("/tags/bulk")
+    def bulk_add_tags(body: BulkTagsIn, actor: dict = Depends(get_auth), conn=Depends(get_conn)):
+        """Tag many items in one batch (one history entry, not one per item)."""
+        try:
+            bid = tags.add(conn, body.item_ids, body.names, actor["actor"])
+        except ValueError as e:
+            raise HTTPException(status_code=404, detail=str(e))
         conn.commit()
         return {"batch": bid}
 
@@ -324,6 +370,15 @@ def build_router() -> APIRouter:
         conn.commit()
         return {"batch": bid}
 
+    @r.delete("/collections/{collection_id}/items")
+    def remove_items_from_collection(collection_id: int, body: CollectionItemsIn, actor: dict = Depends(get_auth), conn=Depends(get_conn)):
+        try:
+            bid = collections.remove_items(conn, collection_id, body.item_ids, actor["actor"])
+        except ValueError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+        conn.commit()
+        return {"batch": bid}
+
     @r.post("/collections/move-items")
     def move_items(body: MoveItemsIn, actor: dict = Depends(get_auth), conn=Depends(get_conn)):
         try:
@@ -337,7 +392,7 @@ def build_router() -> APIRouter:
 
     # ---------- files ----------
     @r.post("/files", status_code=201)
-    async def upload_file(
+    def upload_file(
         item_id: int = Form(...),
         kind: str = Form(...),
         filename: str = Form(...),
@@ -347,11 +402,15 @@ def build_router() -> APIRouter:
         settings: Settings = Depends(get_settings),
         conn=Depends(get_conn),
     ):
+        # sync on purpose: FastAPI runs it in the threadpool so large uploads
+        # do not block the event loop
         if kind not in ATTACHMENT_KINDS - {"link"}:
             raise HTTPException(status_code=400, detail=f"invalid kind: {kind!r}")
         if conn.execute("SELECT 1 FROM items WHERE id=?", (item_id,)).fetchone() is None:
             raise HTTPException(status_code=404, detail="no such item")
         data = file.file.read()
+        if kind == "snapshot" and not zipfile.is_zipfile(io.BytesIO(data)):
+            raise HTTPException(status_code=400, detail="snapshot must be a zip archive")
         # snapshot content is always a zip, regardless of the display filename
         ext = "zip" if kind == "snapshot" else (Path(filename).suffix.lstrip(".") or "bin")
         sha, size = filestore.put(settings.files_dir, data, ext)
@@ -401,7 +460,7 @@ def snapshot_routes(app) -> None:
                 data, ctype = filestore.read_zip_member(settings.files_dir, row["sha256"], path)
             except ValueError:
                 raise HTTPException(status_code=404, detail="bad member")
-            except FileNotFoundError:
+            except (FileNotFoundError, zipfile.BadZipFile):
                 raise HTTPException(status_code=404, detail="no such member")
         finally:
             conn.close()

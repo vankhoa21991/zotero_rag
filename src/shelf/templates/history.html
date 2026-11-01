@@ -3,12 +3,13 @@
 <h1>History</h1>
 <p class="muted">Every change is a batch; reverting restores the previous values.</p>
 <table id="batches">
-  <tr><th>#</th><th>Actor</th><th>When</th><th>State</th><th></th></tr>
+  <tr><th>#</th><th>Actor</th><th>When</th><th>What changed</th><th>State</th><th></th></tr>
   {% for b in batches %}
   <tr>
-    <td>{{ b.id }}</td><td>{{ b.actor }}</td><td>{{ b.ts }}</td><td>{{ b.state }}</td>
+    <td>{{ b.id }}</td><td>{{ b.actor }}</td><td>{{ b.ts }}</td>
+    <td class="summary">{{ b.summary or b.label or '—' }}</td><td>{{ b.state }}</td>
     <td><button class="revert" data-id="{{ b.id }}" {{ 'disabled' if b.state == 'reverted' else '' }}>Revert</button></td>
   </tr>
-  {% else %}<tr><td colspan="5" class="muted">No batches yet.</td></tr>{% endfor %}
+  {% else %}<tr><td colspan="6" class="muted">No batches yet.</td></tr>{% endfor %}
 </table>
 {% endblock %}

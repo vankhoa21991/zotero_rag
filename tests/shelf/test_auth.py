@@ -18,19 +18,33 @@ def test_verify_without_password_set(conn):
 
 def test_session_roundtrip_and_expiry():
     secret = b"0123456789abcdef0123456789abcdef"
-    s = auth.make_session(secret, ttl_s=100, now=1000.0)
-    assert auth.check_session(secret, s, now=1050.0)
-    assert not auth.check_session(secret, s, now=1101.0)  # expired
+    s = auth.make_session(secret, gen=1, ttl_s=100, now=1000.0)
+    assert auth.check_session(secret, s, 1, now=1050.0)
+    assert not auth.check_session(secret, s, 1, now=1101.0)  # expired
 
 
 def test_session_tampered_or_wrong_secret_rejected():
     secret = b"secretsecretsecretsecret"
-    s = auth.make_session(secret, now=1000.0)
+    s = auth.make_session(secret, gen=1, now=1000.0)
     tampered = s[:-4] + ("0000" if not s.endswith("0000") else "1111")
-    assert not auth.check_session(secret, tampered, now=1001.0)
-    assert not auth.check_session(b"othersecret0123456789abcdef", s, now=1001.0)
-    assert not auth.check_session(secret, "garbage", now=1001.0)
-    assert not auth.check_session(secret, "", now=1001.0)
+    assert not auth.check_session(secret, tampered, 1, now=1001.0)
+    assert not auth.check_session(b"othersecret0123456789abcdef", s, 1, now=1001.0)
+    assert not auth.check_session(secret, "garbage", 1, now=1001.0)
+    assert not auth.check_session(secret, "", 1, now=1001.0)
+
+
+def test_session_invalidated_when_generation_changes(conn):
+    secret = auth.session_secret(conn)
+    conn.commit()
+    gen = auth.session_generation(conn)
+    s = auth.make_session(secret, gen=gen, now=1000.0)
+    assert auth.check_session(secret, s, gen, now=1050.0)
+    # changing the password bumps the generation; the old cookie stops working
+    auth.set_password(conn, "new")
+    conn.commit()
+    new_gen = auth.session_generation(conn)
+    assert new_gen != gen
+    assert not auth.check_session(secret, s, new_gen, now=1050.0)
 
 
 def test_session_secret_generated_once(conn):

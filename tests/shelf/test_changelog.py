@@ -1,6 +1,8 @@
 """Tests for shelf.changelog: batches, records, revert/apply."""
 import json
 
+import pytest
+
 from shelf import changelog, items
 
 
@@ -67,6 +69,26 @@ def test_revert_applied_batch_after_apply(conn):
     conn.commit()
     assert items.get_item(conn, iid)["title"] == "A"
     assert changelog.list_batches(conn)[0]["state"] == "reverted"
+
+
+def test_revert_refuses_to_overwrite_later_batch_on_same_field(conn):
+    iid = items.create_item(conn, {"title": "A"}, actor="user")
+    b1 = items.update_item(conn, iid, {"title": "B"}, actor="user")
+    items.update_item(conn, iid, {"date": "2024-01-01"}, actor="user")  # unrelated batch
+    b3 = items.update_item(conn, iid, {"title": "C"}, actor="user")
+    conn.commit()
+
+    with pytest.raises(changelog.ConflictError):
+        changelog.revert_batch(conn, b1)
+    conn.rollback()
+
+    # strict LIFO: revert the newest title change first, then the older one is allowed
+    changelog.revert_batch(conn, b3)
+    conn.commit()
+    assert items.get_item(conn, iid)["title"] == "B"
+    changelog.revert_batch(conn, b1)
+    conn.commit()
+    assert items.get_item(conn, iid)["title"] == "A"
 
 
 def test_record_stores_json_encoded_values(conn):

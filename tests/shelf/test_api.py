@@ -205,6 +205,79 @@ def test_annotation_note_patch_409(env):
     assert c.delete(f"/api/notes/{nid}", headers=w).status_code == 409
 
 
+def test_validation_errors_return_400_and_missing_items_404(env):
+    c, w = env["client"], _h(env["write"])
+    assert c.post("/api/items", json={"title": 123}, headers=w).status_code == 400
+    iid = c.post("/api/items", json={"title": "T"}, headers=w).json()["id"]
+    assert c.patch(f"/api/items/{iid}", json={"id": 9}, headers=w).status_code == 400
+    assert c.patch(f"/api/items/{iid}", json={"creators": "nope"}, headers=w).status_code == 400
+    assert c.patch("/api/items/9999", json={"title": "x"}, headers=w).status_code == 404
+
+
+def test_token_management_requires_web_session(env):
+    c, w = env["client"], _h(env["write"])
+    # even a write token cannot manage tokens — web session only
+    assert c.get("/api/tokens", headers=w).status_code == 403
+    assert c.post("/api/tokens", json={"name": "x", "scope": "read"}, headers=w).status_code == 403
+    # the web session can
+    c.post("/login", data={"password": "test-pass"})
+    r = c.post("/api/tokens", json={"name": "ui-token", "scope": "read"})
+    assert r.status_code == 201
+    assert "token" in r.json()
+
+
+def test_snapshot_upload_non_zip_rejected_400(env):
+    c, w = env["client"], _h(env["write"])
+    iid = c.post("/api/items", json={"title": "T"}, headers=w).json()["id"]
+    r = c.post(
+        "/api/files",
+        headers=w,
+        data={"item_id": str(iid), "kind": "snapshot", "filename": "bad.zip"},
+        files={"file": ("bad.zip", b"this is not a zip", "application/zip")},
+    )
+    assert r.status_code == 400
+
+
+def test_tags_bulk_endpoint_one_batch_for_all_items(env):
+    c, w = env["client"], _h(env["write"])
+    i1 = c.post("/api/items", json={"title": "1"}, headers=w).json()["id"]
+    i2 = c.post("/api/items", json={"title": "2"}, headers=w).json()["id"]
+    r = c.post(
+        "/api/tags/bulk",
+        json={"item_ids": [i1, i2], "names": ["ml", "agents"]},
+        headers=w,
+    )
+    assert r.status_code == 200
+    for iid in (i1, i2):
+        item = c.get(f"/api/items/{iid}", headers=w).json()
+        assert set(item["tags"]) == {"ml", "agents"}
+    conn = shelf_db.connect(env["settings"].db_path)
+    try:
+        # 2 creates + exactly 1 bulk tag batch (not one per item)
+        assert len(changelog.list_batches(conn)) == 3
+    finally:
+        conn.close()
+
+
+def test_collection_items_delete_endpoint(env):
+    c, w = env["client"], _h(env["write"])
+    iid = c.post("/api/items", json={"title": "T"}, headers=w).json()["id"]
+    cid = c.post("/api/collections", json={"name": "C"}, headers=w).json()["id"]
+    assert c.post(f"/api/collections/{cid}/items", json={"item_ids": [iid]}, headers=w).status_code == 200
+    r = c.request("DELETE", f"/api/collections/{cid}/items", json={"item_ids": [iid]}, headers=w)
+    assert r.status_code == 200
+    assert c.get(f"/api/items/{iid}", headers=w).json()["collections"] == []
+
+
+def test_revert_conflict_returns_409(env):
+    c, w = env["client"], _h(env["write"])
+    iid = c.post("/api/items", json={"title": "A"}, headers=w).json()["id"]
+    b1 = c.patch(f"/api/items/{iid}", json={"title": "B"}, headers=w).json()["batch"]
+    c.patch(f"/api/items/{iid}", json={"title": "C"}, headers=w)
+    r = c.post(f"/api/batches/{b1}/revert", headers=w)
+    assert r.status_code == 409
+
+
 def test_health(env):
     r = env["client"].get("/api/health", headers=_h(env["read"]))
     assert r.status_code == 200 and r.json()["ok"] is True

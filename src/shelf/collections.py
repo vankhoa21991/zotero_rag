@@ -2,9 +2,10 @@
 
 Contract: `move` refuses cycles (a collection cannot move under itself or its
 descendants). `delete` reparents children one level up and keeps items in the
-library; reverting a delete re-creates the collection row but does not restore
-child reparenting or item membership. Membership changes are recorded as
-entity `collection_item`; structural changes as entity `collection`.
+library; reverting a delete restores the collection with its original id,
+re-attaches its children and restores item membership. No-op membership
+changes are not recorded, so undoing them changes nothing. Membership changes
+are entity `collection_item`; structural changes entity `collection`.
 """
 import sqlite3
 
@@ -14,10 +15,17 @@ from shelf import changelog
 def create(conn: sqlite3.Connection, name: str, parent_id: int | None = None, actor: str = "user", batch_id: int | None = None) -> int:
     if parent_id is not None and _get(conn, parent_id) is None:
         raise ValueError(f"no such collection: {parent_id}")
+    if batch_id is None:
+        batch_id = changelog.begin_batch(conn, actor)
     cur = conn.execute(
         "INSERT INTO collections(name, parent_id) VALUES(?,?)", (name, parent_id)
     )
-    return cur.lastrowid
+    cid = cur.lastrowid
+    changelog.record(
+        conn, batch_id, "collection", cid, "created",
+        None, {"name": name, "parent_id": parent_id},
+    )
+    return cid
 
 
 def rename(conn: sqlite3.Connection, collection_id: int, name: str, actor: str = "user", batch_id: int | None = None) -> int:
@@ -33,11 +41,11 @@ def rename(conn: sqlite3.Connection, collection_id: int, name: str, actor: str =
 def move(conn: sqlite3.Connection, collection_id: int, new_parent_id: int | None, actor: str = "user", batch_id: int | None = None) -> int:
     _require(conn, collection_id)
     if new_parent_id is not None:
+        _require(conn, new_parent_id)
         if new_parent_id == collection_id or _is_ancestor(
             conn, collection_id, new_parent_id
         ):
             raise ValueError("cannot move a collection under its own descendant")
-        _require(conn, new_parent_id)
     if batch_id is None:
         batch_id = changelog.begin_batch(conn, actor)
     old = _get(conn, collection_id)["parent_id"]
@@ -53,6 +61,11 @@ def delete(conn: sqlite3.Connection, collection_id: int, actor: str = "user", ba
     col = _require(conn, collection_id)
     if batch_id is None:
         batch_id = changelog.begin_batch(conn, actor)
+    item_ids = [
+        r["item_id"]
+        for r in conn.execute("SELECT item_id FROM collection_items WHERE collection_id=?", (collection_id,))
+    ]
+    child_ids = [r["id"] for r in conn.execute("SELECT id FROM collections WHERE parent_id=?", (collection_id,))]
     # Children move up one level; item membership cascades away; items stay.
     conn.execute(
         "UPDATE collections SET parent_id=? WHERE parent_id=?", (col["parent_id"], collection_id)
@@ -64,10 +77,32 @@ def delete(conn: sqlite3.Connection, collection_id: int, actor: str = "user", ba
         "collection",
         collection_id,
         "deleted",
-        {"name": col["name"], "parent_id": col["parent_id"]},
+        {
+            "name": col["name"],
+            "parent_id": col["parent_id"],
+            "item_ids": item_ids,
+            "child_ids": child_ids,
+        },
         None,
     )
     return batch_id
+
+
+def tree_flat(conn: sqlite3.Connection) -> list[dict]:
+    """All collections as a flat list (id, name, depth), ordered by tree walk."""
+    out: list[dict] = []
+
+    def walk(parent_id: int | None, depth: int) -> None:
+        rows = conn.execute(
+            "SELECT id, name FROM collections WHERE parent_id IS ? ORDER BY name",
+            (parent_id,),
+        ).fetchall()
+        for r in rows:
+            out.append({"id": r["id"], "name": r["name"], "depth": depth})
+            walk(r["id"], depth + 1)
+
+    walk(None, 0)
+    return out
 
 
 def tree(conn: sqlite3.Connection) -> list[dict]:
@@ -92,14 +127,16 @@ def tree(conn: sqlite3.Connection) -> list[dict]:
 
 def add_items(conn: sqlite3.Connection, collection_id: int, item_ids: list[int], actor: str = "user", batch_id: int | None = None) -> int:
     _require(conn, collection_id)
+    _require_items(conn, item_ids)
     if batch_id is None:
         batch_id = changelog.begin_batch(conn, actor)
     for iid in item_ids:
-        conn.execute(
+        cur = conn.execute(
             "INSERT OR IGNORE INTO collection_items(collection_id, item_id) VALUES(?,?)",
             (collection_id, iid),
         )
-        changelog.record(conn, batch_id, "collection_item", iid, str(collection_id), None, 1)
+        if cur.rowcount:  # only record real changes; a no-op must not be undoable
+            changelog.record(conn, batch_id, "collection_item", iid, str(collection_id), None, 1)
     return batch_id
 
 
@@ -108,11 +145,12 @@ def remove_items(conn: sqlite3.Connection, collection_id: int, item_ids: list[in
     if batch_id is None:
         batch_id = changelog.begin_batch(conn, actor)
     for iid in item_ids:
-        conn.execute(
+        cur = conn.execute(
             "DELETE FROM collection_items WHERE collection_id=? AND item_id=?",
             (collection_id, iid),
         )
-        changelog.record(conn, batch_id, "collection_item", iid, str(collection_id), 1, None)
+        if cur.rowcount:
+            changelog.record(conn, batch_id, "collection_item", iid, str(collection_id), 1, None)
     return batch_id
 
 
@@ -121,24 +159,37 @@ def move_items(conn: sqlite3.Connection, item_ids: list[int], from_id: int | Non
     _require(conn, to_id)
     if from_id is not None:
         _require(conn, from_id)
+    _require_items(conn, item_ids)
     if batch_id is None:
         batch_id = changelog.begin_batch(conn, actor, label=f"move {len(item_ids)} items to collection {to_id}")
     for iid in item_ids:
+        changed = False
         if from_id is not None:
-            conn.execute(
+            cur = conn.execute(
                 "DELETE FROM collection_items WHERE collection_id=? AND item_id=?", (from_id, iid)
             )
-            changelog.record(conn, batch_id, "collection_item", iid, str(from_id), 1, None)
-        conn.execute(
+            if cur.rowcount:
+                changelog.record(conn, batch_id, "collection_item", iid, str(from_id), 1, None)
+                changed = True
+        cur = conn.execute(
             "INSERT OR IGNORE INTO collection_items(collection_id, item_id) VALUES(?,?)",
             (to_id, iid),
         )
-        changelog.record(conn, batch_id, "collection_item", iid, str(to_id), None, 1)
+        if cur.rowcount:
+            changelog.record(conn, batch_id, "collection_item", iid, str(to_id), None, 1)
+            changed = True
+        # an item that was already in `to` and not in `from` is untouched
     return batch_id
 
 
 def _get(conn: sqlite3.Connection, collection_id: int):
     return conn.execute("SELECT * FROM collections WHERE id=?", (collection_id,)).fetchone()
+
+
+def _require_items(conn: sqlite3.Connection, item_ids: list[int]) -> None:
+    for iid in item_ids:
+        if conn.execute("SELECT 1 FROM items WHERE id=?", (iid,)).fetchone() is None:
+            raise ValueError(f"no such item: {iid}")
 
 
 def _require(conn: sqlite3.Connection, collection_id: int):
@@ -161,19 +212,41 @@ def _is_ancestor(conn: sqlite3.Connection, ancestor_id: int, node_id: int) -> bo
 
 
 def _apply_collection_change(conn: sqlite3.Connection, entity_id: str, field: str, value) -> None:
+    cid = int(entity_id)
+    if field == "created":
+        # Reverting a creation deletes the collection (children move up,
+        # membership cascades away; items stay in the library).
+        row = conn.execute("SELECT * FROM collections WHERE id=?", (cid,)).fetchone()
+        if row is not None and value is None:
+            conn.execute(
+                "UPDATE collections SET parent_id=? WHERE parent_id=?",
+                (row["parent_id"], cid),
+            )
+            conn.execute("DELETE FROM collections WHERE id=?", (cid,))
+        return
     if field == "deleted":
         if value is None:
-            conn.execute("DELETE FROM collections WHERE id=?", (int(entity_id),))
-        else:  # revert of a delete: re-create the row (new id)
+            conn.execute("DELETE FROM collections WHERE id=?", (cid,))
+        else:  # revert of a delete: restore the original row and its state
             conn.execute(
-                "INSERT INTO collections(name, parent_id) VALUES(?,?)",
-                (value["name"], value["parent_id"]),
+                "INSERT OR IGNORE INTO collections(id, name, parent_id) VALUES(?,?,?)",
+                (cid, value["name"], value["parent_id"]),
             )
+            for child_id in value.get("child_ids", []):
+                conn.execute(
+                    "UPDATE collections SET parent_id=? WHERE id=?",
+                    (cid, child_id),
+                )
+            for iid in value.get("item_ids", []):
+                conn.execute(
+                    "INSERT OR IGNORE INTO collection_items(collection_id, item_id) VALUES(?,?)",
+                    (cid, iid),
+                )
         return
     if field == "name":
-        conn.execute("UPDATE collections SET name=? WHERE id=?", (value, int(entity_id)))
+        conn.execute("UPDATE collections SET name=? WHERE id=?", (value, cid))
     elif field == "parent_id":
-        conn.execute("UPDATE collections SET parent_id=? WHERE id=?", (value, int(entity_id)))
+        conn.execute("UPDATE collections SET parent_id=? WHERE id=?", (value, cid))
 
 
 def _apply_collection_item_change(conn: sqlite3.Connection, entity_id: str, field: str, value) -> None:

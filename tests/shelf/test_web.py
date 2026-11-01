@@ -89,8 +89,83 @@ def test_item_page_has_sandboxed_iframe_without_allow_scripts(client):
     iid = _upload_snapshot(client)
     page = client.get(f"/items/{iid}")
     assert page.status_code == 200
-    assert 'sandbox=' in page.text
+    # sandboxed but not allow-same-origin: scripts cannot read the parent page
+    assert 'sandbox=""' in page.text
     assert "allow-scripts" not in page.text
+    assert "allow-same-origin" not in page.text
+
+
+def test_item_page_has_editing_controls(client):
+    iid = client.post("/api/items", json={"title": "Editable"}).json()["id"]
+    client.patch(f"/api/items/{iid}", json={"Reading status": "to read"})
+    client.post(f"/api/items/{iid}/tags", json={"names": ["ml"]})
+    cid = client.post("/api/collections", json={"name": "Side"}).json()["id"]
+    client.post(f"/api/collections/{cid}/items", json={"item_ids": [iid]})
+
+    client.post("/login", data={"password": "test-pass"}, follow_redirects=False)
+    page = client.get(f"/items/{iid}")
+    assert page.status_code == 200
+    for needle in (
+        'id="f-title"',          # editable title
+        'id="f-abstract"',       # editable abstract
+        'id="f-creators"',       # creators JSON editor
+        'class="fld-name"',      # custom field row
+        'data-tag="ml"',         # tag chip with delete
+        'id="tag-add"',          # add tag input
+        'type="checkbox" class="coll"',  # collection membership
+        'id="trash"',            # trash action
+    ):
+        assert needle in page.text, needle
+
+
+def test_library_shows_nested_collections_and_pagination(client):
+    parent = client.post("/api/collections", json={"name": "Parent"}).json()["id"]
+    child = client.post("/api/collections", json={"name": "Child", "parent_id": parent}).json()["id"]
+    for n in range(105):
+        client.post("/api/items", json={"title": f"Item {n:03d}"})
+
+    client.post("/login", data={"password": "test-pass"}, follow_redirects=False)
+    page = client.get("/")
+    assert page.status_code == 200
+    assert page.text.count('class="item-row"') == 100
+    assert 'name="Child"' in page.text or ">Child<" in page.text  # nested collection rendered
+    assert "next page" in page.text
+
+    page2 = client.get("/?page=2")
+    assert page2.status_code == 200
+    assert page2.text.count('class="item-row"') == 5
+    assert "next page" not in page2.text
+
+
+def test_history_page_shows_what_changed(client):
+    iid = client.post("/api/items", json={"title": "Before"}).json()["id"]
+    client.patch(f"/api/items/{iid}", json={"title": "After"})
+    client.post("/login", data={"password": "test-pass"}, follow_redirects=False)
+    page = client.get("/history")
+    assert page.status_code == 200
+    assert f"item {iid}: title" in page.text
+
+
+def test_login_cookie_secure_flag_follows_settings(tmp_path):
+    settings = Settings(data_dir=tmp_path, cookie_secure=True)
+    app = create_app(settings)
+    conn = shelf_db.connect(settings.db_path)
+    auth.set_password(conn, "x")
+    conn.commit()
+    conn.close()
+    c = TestClient(app)
+    r = c.post("/login", data={"password": "x"}, follow_redirects=False)
+    assert r.status_code == 303
+    assert "secure" in r.headers["set-cookie"].lower()
+
+
+def test_api_docs_renders_swagger_not_blank(client):
+    r = client.get("/api/docs")
+    assert r.status_code == 200
+    assert "swagger" in r.text.lower()
+    # the page CSP (default-src 'self') must not be applied to /api/docs,
+    # or Swagger UI's CDN scripts would be blocked and the page would be blank
+    assert "content-security-policy" not in r.headers
 
 
 def test_item_page_renders_title_notes_and_files(client):

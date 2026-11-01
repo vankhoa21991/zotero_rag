@@ -10,21 +10,24 @@ from shelf import changelog, search
 
 
 def add(conn: sqlite3.Connection, item_ids: list[int], names: list[str], actor: str = "user", batch_id: int | None = None) -> int:
+    _require_items(conn, item_ids)
     if batch_id is None:
         batch_id = changelog.begin_batch(conn, actor)
     for name in names:
         tag_id = _tag_id(conn, name, create=True)
         for iid in item_ids:
-            conn.execute(
+            cur = conn.execute(
                 "INSERT OR IGNORE INTO item_tags(item_id, tag_id) VALUES(?,?)", (iid, tag_id)
             )
-            changelog.record(conn, batch_id, "item_tag", iid, name, None, 1)
+            if cur.rowcount:  # only record real changes; a no-op must not be undoable
+                changelog.record(conn, batch_id, "item_tag", iid, name, None, 1)
     for iid in item_ids:
         search.reindex_item(conn, iid)
     return batch_id
 
 
 def remove(conn: sqlite3.Connection, item_ids: list[int], names: list[str], actor: str = "user", batch_id: int | None = None) -> int:
+    _require_items(conn, item_ids)
     if batch_id is None:
         batch_id = changelog.begin_batch(conn, actor)
     for name in names:
@@ -32,10 +35,11 @@ def remove(conn: sqlite3.Connection, item_ids: list[int], names: list[str], acto
         if row is None:
             continue
         for iid in item_ids:
-            conn.execute(
+            cur = conn.execute(
                 "DELETE FROM item_tags WHERE item_id=? AND tag_id=?", (iid, row["id"])
             )
-            changelog.record(conn, batch_id, "item_tag", iid, name, 1, None)
+            if cur.rowcount:
+                changelog.record(conn, batch_id, "item_tag", iid, name, 1, None)
     for iid in item_ids:
         search.reindex_item(conn, iid)
     return batch_id
@@ -67,6 +71,12 @@ def all(conn: sqlite3.Connection) -> list[dict]:
         " GROUP BY t.id ORDER BY t.name"
     ).fetchall()
     return [dict(r) for r in rows]
+
+
+def _require_items(conn: sqlite3.Connection, item_ids: list[int]) -> None:
+    for iid in item_ids:
+        if conn.execute("SELECT 1 FROM items WHERE id=?", (iid,)).fetchone() is None:
+            raise ValueError(f"no such item: {iid}")
 
 
 def _tag_id(conn: sqlite3.Connection, name: str, create: bool = False) -> int:

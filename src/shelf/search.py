@@ -44,7 +44,8 @@ def _creators_text(creators_json: str | None) -> str:
 
 def reindex_item(conn: sqlite3.Connection, item_id: int) -> None:
     """Rebuild the FTS row for one item from all indexed sources."""
-    conn.execute("DELETE FROM item_fts WHERE item_id=?", (item_id,))
+    # The FTS rowid mirrors the item id so deletes are O(1), not a full scan.
+    conn.execute("DELETE FROM item_fts WHERE rowid=?", (item_id,))
     row = conn.execute(
         "SELECT title, abstract, creators FROM items WHERE id=?", (item_id,)
     ).fetchone()
@@ -72,9 +73,10 @@ def reindex_item(conn: sqlite3.Connection, item_id: int) -> None:
         )
     )
     conn.execute(
-        "INSERT INTO item_fts(item_id, title, creators, abstract, notes, tags, fulltext)"
-        " VALUES(?,?,?,?,?,?,?)",
+        "INSERT INTO item_fts(rowid, item_id, title, creators, abstract, notes, tags, fulltext)"
+        " VALUES(?,?,?,?,?,?,?,?)",
         (
+            item_id,
             item_id,
             row["title"] or "",
             _creators_text(row["creators"]),
@@ -123,7 +125,9 @@ def search(
         "  NULLIF(snippet(item_fts, 3, '', '', '…', 10), ''), "
         "  snippet(item_fts, 1, '', '', '', 10)"
         " ) AS snippet,"
-        " -(bm25(item_fts, 10.0, 5.0, 2.0, 2.0, 5.0, 1.0)) AS score"
+        # weights align with columns: item_id (unused), title, creators,
+        # abstract, notes, tags, fulltext
+        " -(bm25(item_fts, 0.0, 10.0, 5.0, 2.0, 2.0, 5.0, 1.0)) AS score"
         " FROM item_fts"
         " JOIN items i ON i.id = item_fts.item_id"
         " WHERE item_fts MATCH ? AND i.deleted_at IS NULL"

@@ -20,6 +20,10 @@ Applier = Callable[[sqlite3.Connection, str, str, Any], None]
 _APPLIERS: dict[str, Applier] = {}
 
 
+class ConflictError(ValueError):
+    """Reverting this batch would overwrite changes made by a later batch."""
+
+
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -67,6 +71,13 @@ def revert_batch(conn: sqlite3.Connection, batch_id: int) -> None:
     if state["state"] == "reverted":
         return
     if state["state"] == "applied":
+        conflicts = _later_conflicts(conn, batch_id)
+        if conflicts:
+            raise ConflictError(
+                "batch was edited again in later batch(es) "
+                + ", ".join(str(b) for b in conflicts)
+                + "; revert those first"
+            )
         changes = conn.execute(
             "SELECT entity, entity_id, field, old FROM changes"
             " WHERE batch_id=? ORDER BY id DESC",
@@ -95,6 +106,19 @@ def apply_batch(conn: sqlite3.Connection, batch_id: int) -> None:
     conn.execute("UPDATE batches SET state='applied' WHERE id=?", (batch_id,))
 
 
+def _later_conflicts(conn: sqlite3.Connection, batch_id: int) -> list[int]:
+    """Ids of later, non-reverted batches touching the same (entity, id, field)."""
+    rows = conn.execute(
+        "SELECT DISTINCT b2.id FROM changes c1"
+        " JOIN changes c2 ON c2.entity=c1.entity AND c2.entity_id=c1.entity_id"
+        "  AND c2.field=c1.field AND c2.batch_id>c1.batch_id"
+        " JOIN batches b2 ON b2.id=c2.batch_id"
+        " WHERE c1.batch_id=? AND b2.state != 'reverted' ORDER BY b2.id",
+        (batch_id,),
+    ).fetchall()
+    return [r["id"] for r in rows]
+
+
 def _reindex_affected(conn: sqlite3.Connection, changes) -> None:
     """Rebuild FTS rows for items whose indexed content a batch touched."""
     item_ids: set[int] = set()
@@ -110,6 +134,11 @@ def _reindex_affected(conn: sqlite3.Connection, changes) -> None:
             ).fetchone()
             if row is not None:
                 item_ids.add(row["item_id"])
+        elif ch["entity"] == "tag":  # tag renamed: reindex items carrying it
+            for r in conn.execute(
+                "SELECT item_id FROM item_tags WHERE tag_id=?", (ch["entity_id"],)
+            ):
+                item_ids.add(r["item_id"])
     for iid in item_ids:
         search.reindex_item(conn, iid)
 
