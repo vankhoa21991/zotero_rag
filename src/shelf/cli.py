@@ -1,4 +1,4 @@
-"""shelf CLI: serve, set-password, create-token (extract lands in Task 9).
+"""shelf CLI: serve, set-password, create-token, extract, import-zotero.
 
 Contract: `main(argv)` is importable for tests; data dir comes from
 SHELF_DATA_DIR (see config.load_settings). `create-token` prints the raw
@@ -32,6 +32,10 @@ def main(argv: list[str] | None = None) -> int:
     t.add_argument("name")
     t.add_argument("--scope", choices=["read", "write"], default="write")
 
+    e = sub.add_parser("extract", help="extract text from pending attachments")
+    e.add_argument("--limit", type=int, default=None,
+                   help="process at most N attachments (for testing)")
+
     args = p.parse_args(argv)
 
     if args.cmd == "serve":
@@ -58,6 +62,14 @@ def main(argv: list[str] | None = None) -> int:
                 return 1
             conn.commit()
             print(raw)
+        elif args.cmd == "extract":
+            from shelf import extract
+
+            counts = extract.run_pending(conn, settings.files_dir, limit=args.limit)
+            conn.commit()
+            print(
+                f"done={counts['done']} empty={counts['empty']} failed={counts['failed']}"
+            )
     finally:
         conn.close()
     return 0

@@ -292,6 +292,43 @@ def test_revert_conflict_returns_409(env):
     assert r.status_code == 409
 
 
+def test_upload_schedules_background_extraction(env):
+    import time
+
+    import pymupdf
+
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_text((72, 72), "zygotequark api")
+    payload = doc.tobytes()
+    c, w = env["client"], _h(env["write"])
+    iid = c.post("/api/items", json={"title": "T"}, headers=w).json()["id"]
+    r = c.post(
+        "/api/files",
+        data={"item_id": str(iid), "kind": "pdf", "filename": "a.pdf"},
+        files={"file": ("a.pdf", io.BytesIO(payload), "application/pdf")},
+        headers=w,
+    )
+    assert r.status_code == 201
+    att_id = r.json()["id"]
+    conn = shelf_db.connect(env["settings"].db_path)
+    try:
+        deadline = time.time() + 15
+        row = None
+        while time.time() < deadline:
+            row = conn.execute(
+                "SELECT text_extracted FROM attachments WHERE id=?", (att_id,)
+            ).fetchone()
+            if row["text_extracted"]:
+                break
+            time.sleep(0.05)
+        assert row["text_extracted"] == 1
+    finally:
+        conn.close()
+    r = c.get("/api/items", params={"q": "zygotequark"}, headers=w)
+    assert any(i["id"] == iid for i in r.json())
+
+
 def test_health(env):
     r = env["client"].get("/api/health", headers=_h(env["read"]))
     assert r.status_code == 200 and r.json()["ok"] is True

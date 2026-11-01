@@ -9,7 +9,9 @@ an annotation note returns 409. Snapshot members are served at
 import hashlib
 import hmac
 import io
+import logging
 import sqlite3
+import threading
 import zipfile
 from pathlib import Path
 from urllib.parse import quote
@@ -33,6 +35,7 @@ from shelf import (
     changelog,
     collections,
     db,
+    extract,
     files as filestore,
     items,
     notes,
@@ -41,6 +44,7 @@ from shelf import (
 )
 from shelf.config import Settings
 
+log = logging.getLogger(__name__)
 SESSION_COOKIE = "shelf_session"
 ATTACHMENT_KINDS = {"pdf", "snapshot", "other", "link"}
 
@@ -80,6 +84,21 @@ def _require_session(actor: dict) -> None:
     """Token management is session-only: a leaked agent token must not mint tokens."""
     if not actor["is_session"]:
         raise HTTPException(status_code=403, detail="session login required")
+
+
+def schedule_extraction(settings: Settings, attachment_id: int) -> None:
+    """Extract attachment text in a background thread (own connection, commits itself)."""
+
+    def job():
+        conn = db.connect(settings.db_path)
+        try:
+            extract.extract_attachment(conn, settings.files_dir, attachment_id)
+        except Exception:
+            log.exception("background extraction failed for attachment %s", attachment_id)
+        finally:
+            conn.close()
+
+    threading.Thread(target=job, daemon=True, name=f"extract-{attachment_id}").start()
 
 
 class BulkUpdateIn(BaseModel):
@@ -423,8 +442,11 @@ def build_router() -> APIRouter:
             (item_id, kind, filename, ext, sha, size, main_file),
         )
         conn.commit()
+        att_id = cur.lastrowid
+        if kind in ("pdf", "snapshot"):
+            schedule_extraction(settings, att_id)
         return dict(
-            conn.execute("SELECT * FROM attachments WHERE id=?", (cur.lastrowid,)).fetchone()
+            conn.execute("SELECT * FROM attachments WHERE id=?", (att_id,)).fetchone()
         )
 
     @r.get("/files/{attachment_id}")
