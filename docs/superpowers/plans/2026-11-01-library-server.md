@@ -90,11 +90,11 @@
 - Consumes: `changelog.begin_batch/record/register_applier`.
 - Produces: `collections.create(conn, name, parent_id, actor, batch_id=None) -> int`; `rename(conn, id, name, actor, batch_id=None)`; `move(conn, id, new_parent_id, actor, batch_id=None)` (raises `ValueError` if `new_parent_id` is the collection or a descendant); `delete(conn, id, actor, batch_id=None)` (child collections move up one level; items stay in the library); `tree(conn) -> list[dict]` (`id,name,parent_id,count,children`); `add_items(conn, collection_id, item_ids, actor, batch_id=None)`; `remove_items(...)`; `move_items(conn, item_ids, from_id, to_id, actor, batch_id=None) -> int` (one batch, returns its id). `tags.add(conn, item_ids, names, actor, batch_id=None)`, `tags.remove(...)`, `tags.rename(conn, old, new, actor)`, `tags.all(conn) -> list[dict]` (`name,count`). `notes.sanitize(html: str) -> str` (nh3 with the allow-list in Global Constraints); `notes.add(conn, item_id, body, actor, kind="note") -> int`, `notes.update(conn, note_id, body, actor)`, `notes.delete(conn, note_id, actor)`; class `ReadOnlyNote(Exception)` raised by update/delete on `kind='annotation'`. Bodies are sanitized on add and update. All changes are recorded and revertable.
 
-- [ ] **Step 1:** Tests: `test_move_collection_into_own_descendant_raises`; `test_delete_collection_reparents_children_keeps_items`; `test_move_items_between_collections_and_revert`; `test_tag_add_remove_rename_revert`; `test_note_edit_and_revert`; `test_note_sanitize_strips_script_and_onclick_keeps_links`; `test_annotation_note_update_and_delete_raise_read_only`.
-- [ ] **Step 2:** Run; expect FAIL.
-- [ ] **Step 3:** Implement; register appliers for entities `collection_item`, `collection`, `item_tag`, `note`.
-- [ ] **Step 4:** Run; expect PASS.
-- [ ] **Step 5:** Commit `feat(shelf): collections, tags, notes with undo`.
+- [x] **Step 1:** Tests: `test_move_collection_into_own_descendant_raises`; `test_delete_collection_reparents_children_keeps_items`; `test_move_items_between_collections_and_revert`; `test_tag_add_remove_rename_revert`; `test_note_edit_and_revert`; `test_note_sanitize_strips_script_and_onclick_keeps_links`; `test_annotation_note_update_and_delete_raise_read_only`.
+- [x] **Step 2:** Run; expect FAIL.
+- [x] **Step 3:** Implement; register appliers for entities `collection_item`, `collection`, `item_tag`, `note`.
+- [x] **Step 4:** Run; expect PASS.
+- [x] **Step 5:** Commit `feat(shelf): collections, tags, notes with undo`.
 
 ### Task 5: Full-text search
 
