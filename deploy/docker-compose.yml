@@ -1,0 +1,28 @@
+# shelf — library server (Docker Compose)
+#
+#   cd deploy && docker compose up -d --build
+#   # set the web password / create a token once:
+#   docker compose run --rm shelf set-password
+#   docker compose run --rm shelf create-token agent-x --scope write
+#
+# The data directory is the named volume `shelf-data`. Back it up with:
+#   docker run --rm -v shelf_shelf-data:/data alpine tar czf - -C /data . > shelf-backup.tar.gz
+
+services:
+  shelf:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: shelf
+    environment:
+      SHELF_DATA_DIR: /data
+      # SHELF_COOKIE_SECURE: "1"   # enable when behind HTTPS
+    volumes:
+      - shelf-data:/data
+    ports:
+      # bound to the host loopback; expose publicly via a reverse proxy if needed
+      - "127.0.0.1:8321:8321"
+    restart: unless-stopped
+
+volumes:
+  shelf-data:

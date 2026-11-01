@@ -1,0 +1,29 @@
+# shelf — self-hosted library server (systemd unit, example)
+#
+# Install:
+#   sudo cp deploy/shelf.service /etc/systemd/system/
+#   # edit User= and Environment=SHELF_DATA_DIR= to match your setup
+#   sudo systemctl daemon-reload && sudo systemctl enable --now shelf
+#
+# Behind a reverse proxy with HTTPS, add:
+#   Environment=SHELF_COOKIE_SECURE=1
+
+[Unit]
+Description=shelf library server
+After=network.target
+
+[Service]
+Type=simple
+User=lupin
+WorkingDirectory=/home/lupin/projects/zotero-rag
+Environment=SHELF_DATA_DIR=/home/lupin/shelf-data
+# Environment=SHELF_COOKIE_SECURE=1
+ExecStart=/home/lupin/projects/zotero-rag/.venv/bin/shelf serve --host 127.0.0.1 --port 8321
+Restart=on-failure
+RestartSec=3
+# the server is single-user; keep it modest
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target
