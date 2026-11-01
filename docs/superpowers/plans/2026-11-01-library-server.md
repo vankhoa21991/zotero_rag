@@ -103,11 +103,11 @@
 **Interfaces:**
 - Produces: `search.escape_fts(q: str) -> str` (reuse the approach in `src/zotero_rag/search.py`; look there first and import rather than copy if the signature fits); `search.reindex_item(conn, item_id) -> None` (rebuild the row from items+notes+tags+attachment text); `search.set_attachment_text(conn, attachment_id, text) -> None` (stores text, sets `text_extracted=1`, reindexes the parent); `search.search(conn, query: str, *, collection_id=None, tag=None, type=None, limit=50, offset=0) -> list[dict]` (`id,title,type,snippet,score`, trashed items excluded, BM25 weighted title > tags/creators > abstract/notes > fulltext). This task wires `reindex_item` into the Task 3-4 modules listed under Files; notes include annotation notes.
 
-- [ ] **Step 1:** Tests: `test_finds_by_title`; `test_finds_word_only_in_attachment_text`; `test_fts_syntax_chars_never_raise` (parametrize `'"', '(', 'a AND', '-x', 'foo:', '*'` -> list, no exception); `test_filters_by_collection_and_tag`; `test_trashed_excluded`; `test_unicode_query`; `test_edit_title_and_tag_then_revert_updates_index` (search reflects edit, then reflects revert).
-- [ ] **Step 2:** Run; expect FAIL.
-- [ ] **Step 3:** Implement; empty query returns `[]`.
-- [ ] **Step 4:** Run; expect PASS.
-- [ ] **Step 5:** Commit `feat(shelf): FTS5 search with snippets`.
+- [x] **Step 1:** Tests: `test_finds_by_title`; `test_finds_word_only_in_attachment_text`; `test_fts_syntax_chars_never_raise` (parametrize `'"', '(', 'a AND', '-x', 'foo:', '*'` -> list, no exception); `test_filters_by_collection_and_tag`; `test_trashed_excluded`; `test_unicode_query`; `test_edit_title_and_tag_then_revert_updates_index` (search reflects edit, then reflects revert).
+- [x] **Step 2:** Run; expect FAIL.
+- [x] **Step 3:** Implement; empty query returns `[]`.
+- [x] **Step 4:** Run; expect PASS.
+- [x] **Step 5:** Commit `feat(shelf): FTS5 search with snippets`.
 
 ### Task 6: Auth (password, sessions, tokens)
 

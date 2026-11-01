@@ -8,7 +8,7 @@ hard-deleted: trash sets `deleted_at`, restore clears it.
 import json
 import sqlite3
 
-from shelf import changelog
+from shelf import changelog, search
 
 CORE_FIELDS = ("type", "title", "creators", "date", "url", "abstract", "doi")
 
@@ -40,6 +40,7 @@ def create_item(conn: sqlite3.Connection, data: dict, actor: str, batch_id: int 
             "INSERT INTO item_fields(item_id, name, value) VALUES(?,?,?)",
             (iid, name, str(value)),
         )
+    search.reindex_item(conn, iid)
     return iid
 
 
@@ -133,6 +134,7 @@ def update_item(conn: sqlite3.Connection, item_id: int, changes: dict, actor: st
         changelog.record(conn, batch_id, "item", item_id, field, old, new)
     if not proposed:
         conn.execute("UPDATE items SET modified=? WHERE id=?", (changelog.now_iso(), item_id))
+        search.reindex_item(conn, item_id)
     return batch_id
 
 
@@ -147,6 +149,7 @@ def bulk_update(conn: sqlite3.Connection, item_ids: list[int], changes: dict, ac
             _set_value(conn, iid, field, new)
             changelog.record(conn, batch_id, "item", iid, field, old, new)
         conn.execute("UPDATE items SET modified=? WHERE id=?", (changelog.now_iso(), iid))
+        search.reindex_item(conn, iid)
     return batch_id
 
 

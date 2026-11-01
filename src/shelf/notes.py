@@ -10,7 +10,7 @@ import sqlite3
 
 import nh3
 
-from shelf import changelog
+from shelf import changelog, search
 
 _TAGS = {
     "p", "br", "b", "strong", "i", "em", "u", "s", "a", "ul", "ol", "li",
@@ -33,6 +33,7 @@ def add(conn: sqlite3.Connection, item_id: int, body: str, actor: str = "user", 
         "INSERT INTO notes(item_id, kind, body) VALUES(?,?,?)",
         (item_id, kind, sanitize(body)),
     )
+    search.reindex_item(conn, item_id)
     return cur.lastrowid
 
 
@@ -43,6 +44,7 @@ def update(conn: sqlite3.Connection, note_id: int, body: str, actor: str = "user
     batch_id = changelog.begin_batch(conn, actor)
     conn.execute("UPDATE notes SET body=? WHERE id=?", (sanitize(body), note_id))
     changelog.record(conn, batch_id, "note", note_id, "body", note["body"], sanitize(body))
+    search.reindex_item(conn, note["item_id"])
     return batch_id
 
 
@@ -61,6 +63,7 @@ def delete(conn: sqlite3.Connection, note_id: int, actor: str = "user") -> int:
         {"item_id": note["item_id"], "kind": note["kind"], "body": note["body"]},
         None,
     )
+    search.reindex_item(conn, note["item_id"])
     return batch_id
 
 
@@ -79,6 +82,7 @@ def _apply_note_change(conn: sqlite3.Connection, entity_id: str, field: str, val
             "INSERT INTO notes(item_id, kind, body) VALUES(?,?,?)",
             (value["item_id"], value["kind"], value["body"]),
         )
+        search.reindex_item(conn, value["item_id"])
 
 
 changelog.register_applier("note", _apply_note_change)

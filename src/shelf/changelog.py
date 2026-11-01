@@ -12,6 +12,8 @@ import sqlite3
 from datetime import datetime, timezone
 from typing import Any, Callable
 
+from shelf import search
+
 # fn(conn, entity_id, field, value): apply `value` (already JSON-decoded).
 Applier = Callable[[sqlite3.Connection, str, str, Any], None]
 
@@ -72,6 +74,7 @@ def revert_batch(conn: sqlite3.Connection, batch_id: int) -> None:
         ).fetchall()
         for ch in changes:
             _apply_value(conn, ch["entity"], ch["entity_id"], ch["field"], ch["old"])
+        _reindex_affected(conn, changes)
     conn.execute("UPDATE batches SET state='reverted' WHERE id=?", (batch_id,))
 
 
@@ -88,7 +91,27 @@ def apply_batch(conn: sqlite3.Connection, batch_id: int) -> None:
     ).fetchall()
     for ch in changes:
         _apply_value(conn, ch["entity"], ch["entity_id"], ch["field"], ch["new"])
+    _reindex_affected(conn, changes)
     conn.execute("UPDATE batches SET state='applied' WHERE id=?", (batch_id,))
+
+
+def _reindex_affected(conn: sqlite3.Connection, changes) -> None:
+    """Rebuild FTS rows for items whose indexed content a batch touched."""
+    item_ids: set[int] = set()
+    for ch in changes:
+        if ch["entity"] in ("item", "item_tag"):
+            try:
+                item_ids.add(int(ch["entity_id"]))
+            except ValueError:
+                pass
+        elif ch["entity"] == "note":
+            row = conn.execute(
+                "SELECT item_id FROM notes WHERE id=?", (ch["entity_id"],)
+            ).fetchone()
+            if row is not None:
+                item_ids.add(row["item_id"])
+    for iid in item_ids:
+        search.reindex_item(conn, iid)
 
 
 def list_batches(conn: sqlite3.Connection, limit: int = 50) -> list[dict]:

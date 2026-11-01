@@ -97,6 +97,13 @@ CREATE TABLE IF NOT EXISTS settings(
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+CREATE VIRTUAL TABLE IF NOT EXISTS item_fts USING fts5(
+  item_id UNINDEXED, title, creators, abstract, notes, tags, fulltext
+);
+CREATE TABLE IF NOT EXISTS attachment_text(
+  attachment_id INTEGER PRIMARY KEY REFERENCES attachments(id) ON DELETE CASCADE,
+  text TEXT NOT NULL
+);
 """
 
 

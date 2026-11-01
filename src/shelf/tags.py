@@ -6,7 +6,7 @@ Change-log entities: `item_tag` (entity_id = item id, field = tag name) and
 """
 import sqlite3
 
-from shelf import changelog
+from shelf import changelog, search
 
 
 def add(conn: sqlite3.Connection, item_ids: list[int], names: list[str], actor: str = "user", batch_id: int | None = None) -> int:
@@ -19,6 +19,8 @@ def add(conn: sqlite3.Connection, item_ids: list[int], names: list[str], actor: 
                 "INSERT OR IGNORE INTO item_tags(item_id, tag_id) VALUES(?,?)", (iid, tag_id)
             )
             changelog.record(conn, batch_id, "item_tag", iid, name, None, 1)
+    for iid in item_ids:
+        search.reindex_item(conn, iid)
     return batch_id
 
 
@@ -34,6 +36,8 @@ def remove(conn: sqlite3.Connection, item_ids: list[int], names: list[str], acto
                 "DELETE FROM item_tags WHERE item_id=? AND tag_id=?", (iid, row["id"])
             )
             changelog.record(conn, batch_id, "item_tag", iid, name, 1, None)
+    for iid in item_ids:
+        search.reindex_item(conn, iid)
     return batch_id
 
 
@@ -47,6 +51,11 @@ def rename(conn: sqlite3.Connection, old: str, new: str, actor: str = "user", ba
         batch_id = changelog.begin_batch(conn, actor)
     conn.execute("UPDATE tags SET name=? WHERE id=?", (new, row["id"]))
     changelog.record(conn, batch_id, "tag", row["id"], "name", old, new)
+    for iid in (
+        r[0]
+        for r in conn.execute("SELECT item_id FROM item_tags WHERE tag_id=?", (row["id"],))
+    ):
+        search.reindex_item(conn, iid)
     return batch_id
 
 
