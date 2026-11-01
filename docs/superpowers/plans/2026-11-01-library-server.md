@@ -144,11 +144,11 @@
 **Interfaces:**
 - Produces: HTML routes `GET /login`, `POST /login` (throttled, sets session cookie, `HttpOnly`, `SameSite=Lax`), `POST /logout`, `GET /` (library: search box, filters by type/tag, collections tree on the left, item list, multi-select with bulk actions: move to collection, add/remove tag, set field for all selected), `GET /items/{id}` (all metadata editable inline; add/remove custom fields; change type; tags; notes; attachments with PDF link, link attachments as external links, missing files marked "file missing", snapshot in a sandboxed iframe whose `src` is the item's `view_url`; notes rendered as their sanitized HTML, annotation notes shown read-only and visually distinct; trash/restore), `GET /history` (batches with Revert button), `GET /settings` (create/revoke tokens). All edits call the JSON API from `app.js`. Layout must work at phone width. CLI `shelf`: `serve [--host --port]` (uvicorn), `set-password`, `create-token NAME --scope read|write`, `extract` (Task 9).
 
-- [ ] **Step 1:** Tests: unauthenticated `GET /` redirects to `/login`; login success sets cookie and `GET /` returns 200 listing a created item; wrong password 401 and sixth failure 429; item page contains the iframe with `sandbox` attribute for a snapshot attachment and no `allow-scripts`; CLI `set-password`/`create-token` against a tmp data dir print a token and `check_token` accepts it.
-- [ ] **Step 2:** Run; expect FAIL.
-- [ ] **Step 3:** Implement. Escape all item text in templates (autoescape on). After this task, run `shelf serve` against a tmp data dir, create three items by API and **show the user the running UI in the browser for feedback before Task 9** (polish is theirs to steer).
-- [ ] **Step 4:** Run; expect PASS.
-- [ ] **Step 5:** Commit `feat(shelf): web UI and CLI`.
+- [x] **Step 1:** Tests: unauthenticated `GET /` redirects to `/login`; login success sets cookie and `GET /` returns 200 listing a created item; wrong password 401 and sixth failure 429; item page contains the iframe with `sandbox` attribute for a snapshot attachment and no `allow-scripts`; CLI `set-password`/`create-token` against a tmp data dir print a token and `check_token` accepts it.
+- [x] **Step 2:** Run; expect FAIL.
+- [x] **Step 3:** Implement. Escape all item text in templates (autoescape on). After this task, run `shelf serve` against a tmp data dir, create three items by API and **show the user the running UI in the browser for feedback before Task 9** (polish is theirs to steer).
+- [x] **Step 4:** Run; expect PASS.
+- [x] **Step 5:** Commit `feat(shelf): web UI and CLI`.
 
 ### Task 9: Text extraction job
 

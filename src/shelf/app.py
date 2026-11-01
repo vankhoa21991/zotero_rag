@@ -7,7 +7,7 @@ created if missing, and the session secret is generated on first run.
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from shelf import api, auth, db
+from shelf import api, auth, db, web
 from shelf.config import Settings
 
 
@@ -21,6 +21,7 @@ def create_app(settings: Settings) -> FastAPI:
 
     app = FastAPI(title="shelf", docs_url="/api/docs")
     app.state.settings = settings
+    app.state.throttle = auth.LoginThrottle()
     app.add_middleware(
         CORSMiddleware,
         allow_origin_regex=r"^(moz|chrome)-extension://.+",
@@ -30,4 +31,5 @@ def create_app(settings: Settings) -> FastAPI:
     )
     app.include_router(api.build_router(), prefix="/api")
     api.snapshot_routes(app)
+    web.web_routes(app)
     return app

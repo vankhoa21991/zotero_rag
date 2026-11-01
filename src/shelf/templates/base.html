@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>{% block title %}shelf{% endblock %}</title>
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <nav><a href="/">shelf</a></nav>
+  <main>
+    {% block body %}{% endblock %}
+  </main>
+</body>
+</html>

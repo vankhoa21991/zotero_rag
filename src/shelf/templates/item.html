@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}{{ item.title if item else "missing" }} &mdash; shelf{% endblock %}
+{% block body %}
+{% if item %}
+  <h1>{{ item.title }}</h1>
+  <dl>
+    {% if item.type %}<dt>Type</dt><dd>{{ item.type }}</dd>{% endif %}
+    {% if item.date %}<dt>Date</dt><dd>{{ item.date }}</dd>{% endif %}
+    {% if item.url %}<dt>URL</dt><dd><a href="{{ item.url }}">{{ item.url }}</a></dd>{% endif %}
+    {% if item.doi %}<dt>DOI</dt><dd>{{ item.doi }}</dd>{% endif %}
+  </dl>
+  {% if item.abstract %}<h2>Abstract</h2><p>{{ item.abstract }}</p>{% endif %}
+  <h2>Files</h2>
+  <ul>
+    {% for att in item.attachments %}
+      <li>{{ att.filename or att.kind }}
+        {% if att.kind == "link" and att.url %}<a href="{{ att.url }}">(open link)</a>{% endif %}
+        {% if att.view_url %}<a href="{{ att.view_url }}">(view snapshot)</a>{% endif %}
+      </li>
+    {% endfor %}
+  </ul>
+{% else %}
+  <h1>Item not found</h1>
+{% endif %}
+{% endblock %}

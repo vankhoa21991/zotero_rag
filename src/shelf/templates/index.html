@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>shelf</h1>
+<p>{{ item_count }} items in the library. (Full UI lands in Task 9.)</p>
+<div id="status"></div>
+<form method="post" action="/logout"><button type="submit">Sign out</button></form>
+{% endblock %}
