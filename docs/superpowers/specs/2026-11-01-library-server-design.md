@@ -79,7 +79,7 @@ All UI features go through an HTTP JSON API authenticated by a token (so the ext
 
 ### 4.8 Import from Zotero
 - One command, e.g. `library import-zotero`, runnable against the user's local Zotero.
-- Imports items, creators, tags, collections (with hierarchy), child notes, attachments (PDFs and web snapshots; files copied, not moved), existing annotations if easy.
+- Imports items, creators, tags, collections (with hierarchy), child notes, attachments (PDFs and web snapshots; files copied, not moved), and existing PDF annotations (1,674) as read-only notes on their item (user decision, 2026-11-01).
 - Idempotent: re-running updates/skips already-imported items (keyed by Zotero item key) and never duplicates. Useful because the user keeps using Zotero until they switch.
 - Reports counts (items, attachments, collections, notes, tags, failures) and a list of anything it could not import. Success check: counts match Zotero's (2,424 items; 824 with PDFs; 1,438 webpages), and a sample of items opened in the UI looks right.
 - Read-only toward Zotero.
