@@ -125,7 +125,9 @@ aside { min-width: 0; }
 #bulk input, #bulk select { min-width: 0; flex: 1 1 8rem; }
 
 /* item page */
-.meta { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 0.2rem 1rem; }
+.meta { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 0.4rem 0.75rem; align-items: center; margin: 0; }
+.meta dd { margin: 0; min-width: 0; }
+.meta input, .meta select { width: 100%; }
 .files { list-style: none; padding: 0; }
 .files li { padding: 0.3rem 0; }
 .missing { color: var(--danger); font-weight: 600; }
@@ -137,7 +139,7 @@ iframe.snapshot { width: 100%; height: 28rem; border: 1px solid var(--border); b
 .item-actions { display: flex; gap: 1rem; align-items: center; margin-top: 1.5rem; flex-wrap: wrap; }
 .chips .chip { margin: 0.1rem 0.3rem 0.1rem 0; }
 .coll-checks label { display: inline-block; margin: 0.1rem 0.6rem 0.1rem 0; }
-h1 .title-input { font-size: 1.5rem; font-weight: 700; border: none; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; width: 100%; max-width: none; padding: 0; }
+h1 .title-input { font-size: 1.5rem; font-weight: 700; line-height: 1.3; border: none; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; width: 100%; max-width: none; padding: 0; resize: none; overflow: hidden; display: block; }
 h1 .title-input:focus { border-bottom-color: var(--accent); outline: none; }
 
 /* tables */
@@ -166,3 +168,47 @@ form[action="/login"] button { margin-top: 0.75rem; }
 .open-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0.5rem 0 1rem; }
 .open-actions .btn { max-width: 100%; overflow-wrap: anywhere; text-align: center; }
 .files .open-pdf { padding: 0.15rem 0.6rem; min-height: 0; overflow-wrap: anywhere; }
+
+/* item page: two columns (reading + metadata card), one column when narrow */
+.item-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem 1.5rem; align-items: start; }
+@media (min-width: 60rem) {
+  .item-layout { grid-template-columns: minmax(0, 1fr) 26rem; }
+}
+.item-main, .item-side { min-width: 0; }
+.card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 0.25rem 1rem 1rem; }
+.item-side h2 { margin: 1rem 0 0.4rem; }
+.item-side h2:first-child { margin-top: 0.75rem; }
+.item-main h2 { margin: 1rem 0 0.4rem; }
+.item-main textarea { width: 100%; max-width: none; }
+.abstract { min-height: 8rem; resize: vertical; }
+.save-status { min-height: 1.5rem; margin: 0 0 0.25rem; color: var(--muted); font-size: 0.9rem; }
+.save-status.error { color: var(--danger); font-weight: 600; }
+.creators { display: flex; flex-direction: column; gap: 0.4rem; }
+.creator-row { display: grid; grid-template-columns: 6.5rem minmax(0, 1fr) minmax(0, 1fr) auto; gap: 0.3rem; align-items: center; }
+.creator-row[data-kind="name"] .cr-name { grid-column: 2 / 4; }
+.creator-row input, .creator-row select { width: 100%; min-width: 0; }
+.chips { display: flex; flex-wrap: wrap; gap: 0.3rem; margin: 0 0 0.4rem; }
+.chips:empty { margin: 0; }
+.chips .chip { margin: 0; }
+.chip .mini { border: none; background: none; padding: 0 0.2rem; font-size: 0.95rem; line-height: 1; }
+.chip .mini:hover { color: var(--danger); }
+.item-side input#tag-add, .item-side input#coll-filter { width: 100%; }
+.coll-list { max-height: 14rem; overflow-y: auto; border: 1px solid var(--border); border-radius: 6px; margin-top: 0.4rem; background: var(--card); }
+.coll-opt { display: flex; gap: 0.5rem; align-items: flex-start; padding: 0.25rem 0.5rem; cursor: pointer; font-size: 0.9rem; }
+.coll-opt:hover { background: var(--chip-bg); }
+.coll-opt input { margin-top: 0.25rem; flex: none; }
+.coll-opt span { min-width: 0; overflow-wrap: anywhere; }
+/* custom fields: stacked grid rows so values keep full width in the narrow card */
+#fields, #fields tbody { display: block; width: 100%; background: transparent; }
+#fields tr { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) auto; gap: 0.3rem; padding: 0.2rem 0; }
+#fields td { padding: 0; border: none; }
+#fields input { width: 100%; min-width: 0; }
+#fields .fields-head { display: none; }
+.files li { overflow-wrap: anywhere; }
+@media (max-width: 47.99rem) {
+  .creator-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; }
+  .creator-row .cr-type { grid-column: 1 / 3; }
+  .creator-row[data-kind="name"] .cr-name { grid-column: 1 / 3; }
+  .creator-row .cr-del { grid-row: 1; grid-column: 3; }
+  .card { padding: 0.25rem 0.75rem 0.75rem; }
+}

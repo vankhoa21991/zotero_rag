@@ -108,6 +108,24 @@ document.querySelectorAll("[data-del-coll]").forEach((b) =>
 const itemIdEl = document.getElementById("item-id");
 if (itemIdEl) {
   const itemId = +itemIdEl.textContent;
+
+  // visible, aria-live save status instead of silent saves / alert()
+  const statusEl = document.getElementById("save-status");
+  let statusTimer;
+  const setStatus = (msg, isErr) => {
+    if (!statusEl) return;
+    statusEl.textContent = msg;
+    statusEl.classList.toggle("error", !!isErr);
+    clearTimeout(statusTimer);
+    if (!isErr) statusTimer = setTimeout(() => { statusEl.textContent = ""; }, 4000);
+  };
+  const fail = (e) => setStatus(`Error: ${(e && e.message) || e}`, true);
+  // run a save, showing "Saving…" then "Saved ✓" or the error
+  const save = async (fn) => {
+    setStatus("Saving…");
+    try { const r = await fn(); setStatus("Saved ✓"); return r; }
+    catch (e) { fail(e); throw e; }
+  };
   const patch = (changes) =>
     api(`/api/items/${itemId}`, { method: "PATCH", body: JSON.stringify(changes) });
 
@@ -115,9 +133,7 @@ if (itemIdEl) {
   const bind = (id, field) => {
     const el = document.getElementById(id);
     if (!el) return;
-    el.addEventListener("change", async () => {
-      try { await patch({ [field]: el.value }); } catch (e) { fail(e); }
-    });
+    el.addEventListener("change", () => { save(() => patch({ [field]: el.value })).catch(() => {}); });
   };
   bind("f-title", "title");
   bind("f-type", "type");
@@ -126,52 +142,82 @@ if (itemIdEl) {
   bind("f-doi", "doi");
   bind("f-abstract", "abstract");
 
-  // creators: JSON textarea, validated before saving
-  const creatorsEl = document.getElementById("f-creators");
-  if (creatorsEl) {
-    const orig = creatorsEl.value;
-    creatorsEl.addEventListener("change", async () => {
-      let v;
-      try {
-        v = JSON.parse(creatorsEl.value || "[]");
-      } catch {
-        alert('Creators must be JSON, e.g. [{"first": "Y.", "last": "LeCun"}]');
-        creatorsEl.value = orig;
-        return;
-      }
-      try { await patch({ creators: v }); } catch (e) { fail(e); }
-    });
+  // title is a textarea so long titles wrap; keep it one logical line
+  const titleEl = document.getElementById("f-title");
+  if (titleEl) {
+    const grow = () => { titleEl.style.height = "auto"; titleEl.style.height = titleEl.scrollHeight + "px"; };
+    titleEl.addEventListener("input", grow);
+    titleEl.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); titleEl.blur(); } });
+    grow();
+    window.addEventListener("resize", grow);
   }
 
-  // custom fields
+  // creators: first/last (or name) rows serialised to the creators list on change.
+  // Each row's data-extra holds every key the UI doesn't edit, so nothing is lost.
+  const creatorsEl = document.getElementById("f-creators");
+  if (creatorsEl) {
+    const serialize = () => {
+      const out = [];
+      creatorsEl.querySelectorAll(".creator-row").forEach((row) => {
+        let obj;
+        try { obj = JSON.parse(row.dataset.extra || "{}"); } catch { obj = {}; }
+        const type = row.querySelector(".cr-type").value;
+        if (type) obj.type = type;
+        const val = (sel) => { const el = row.querySelector(sel); return el ? el.value.trim() : ""; };
+        if (row.dataset.kind === "name") {
+          if (val(".cr-name")) obj.name = val(".cr-name");
+        } else {
+          if (val(".cr-first")) obj.first = val(".cr-first");
+          if (val(".cr-last")) obj.last = val(".cr-last");
+        }
+        const named = ["name", "first", "last"].some((k) => typeof obj[k] === "string" && obj[k].trim());
+        if (named) out.push(obj); // blank rows are dropped
+      });
+      return out;
+    };
+    const saveCreators = () => { save(() => patch({ creators: serialize() })).catch(() => {}); };
+    creatorsEl.addEventListener("change", saveCreators);
+    creatorsEl.addEventListener("click", (e) => {
+      const del = e.target.closest(".cr-del");
+      if (!del) return;
+      del.closest(".creator-row").remove();
+      saveCreators();
+    });
+    const crAdd = document.getElementById("cr-add");
+    const tpl = document.getElementById("creator-tpl");
+    if (crAdd && tpl) {
+      crAdd.addEventListener("click", () => {
+        creatorsEl.appendChild(tpl.content.cloneNode(true));
+        creatorsEl.querySelector(".creator-row:last-child .cr-first").focus();
+      });
+    }
+  }
+
+  // custom fields (updated in place, no reload)
   const fieldsTable = document.getElementById("fields");
   const wireFieldRow = (tr) => {
     const nameEl = tr.querySelector(".fld-name");
     const valueEl = tr.querySelector(".fld-value");
-    nameEl.addEventListener("change", async () => {
+    const del = tr.querySelector(".fld-del");
+    nameEl.addEventListener("change", () => {
       const oldName = nameEl.dataset.old;
       const newName = nameEl.value.trim();
       if (newName === oldName) return;
-      try {
-        const changes = {};
-        if (oldName) changes[oldName] = null; // remove under old name
-        if (newName) changes[newName] = valueEl.value;
-        await patch(changes);
-        location.reload();
-      } catch (e) { fail(e); }
+      const changes = {};
+      if (oldName) changes[oldName] = null; // remove under old name
+      if (newName) changes[newName] = valueEl.value;
+      save(() => patch(changes)).then(() => { nameEl.dataset.old = newName; }).catch(() => {});
     });
-    valueEl.addEventListener("change", async () => {
+    valueEl.addEventListener("change", () => {
       const name = nameEl.value.trim();
       if (!name) return;
-      try { await patch({ [name]: valueEl.value }); } catch (e) { fail(e); }
+      save(() => patch({ [name]: valueEl.value })).then(() => { nameEl.dataset.old = name; }).catch(() => {});
     });
-    const del = tr.querySelector(".fld-del");
-    if (del) {
-      del.addEventListener("click", async () => {
-        try { await patch({ [del.dataset.name]: null }); location.reload(); }
-        catch (e) { fail(e); }
-      });
-    }
+    del.addEventListener("click", () => {
+      const name = nameEl.dataset.old;
+      if (!name) { tr.remove(); return; }
+      save(() => patch({ [name]: null })).then(() => tr.remove()).catch(() => {});
+    });
   };
   fieldsTable.querySelectorAll(".fld-name").forEach((el) => wireFieldRow(el.closest("tr")));
   const fldAdd = document.getElementById("fld-add");
@@ -179,8 +225,9 @@ if (itemIdEl) {
     fldAdd.addEventListener("click", () => {
       const tr = document.createElement("tr");
       tr.innerHTML =
-        '<td><input class="fld-name" placeholder="name"></td>' +
-        '<td><input class="fld-value" placeholder="value"></td>';
+        '<td><input class="fld-name" placeholder="name" aria-label="Field name"></td>' +
+        '<td><input class="fld-value" placeholder="value" aria-label="Field value"></td>' +
+        '<td><button class="mini danger fld-del" aria-label="Delete field">del</button></td>';
       const nameEl = tr.querySelector(".fld-name");
       nameEl.dataset.old = "";
       fieldsTable.appendChild(tr);
@@ -189,46 +236,84 @@ if (itemIdEl) {
     });
   }
 
-  // tags
-  document.querySelectorAll(".chip-del").forEach((b) =>
-    b.addEventListener("click", async () => {
-      try {
-        await api(`/api/items/${itemId}/tags/${encodeURIComponent(b.dataset.tag)}`, { method: "DELETE" });
-        location.reload();
-      } catch (e) { fail(e); }
-    })
-  );
+  // tags: chips with ×, updated in place
+  const tagChips = document.getElementById("tag-chips");
+  const addTagChip = (name) => {
+    const chip = document.createElement("span");
+    chip.className = "chip tag-chip";
+    chip.append(document.createTextNode(name));
+    const b = document.createElement("button");
+    b.className = "mini chip-del";
+    b.dataset.tag = name;
+    b.setAttribute("aria-label", `Remove tag ${name}`);
+    b.textContent = "×";
+    chip.append(b);
+    tagChips.append(chip);
+  };
+  if (tagChips) {
+    tagChips.addEventListener("click", (e) => {
+      const b = e.target.closest(".chip-del");
+      if (!b) return;
+      save(() => api(`/api/items/${itemId}/tags/${encodeURIComponent(b.dataset.tag)}`, { method: "DELETE" }))
+        .then(() => b.closest(".chip").remove()).catch(() => {});
+    });
+  }
   const tagAdd = document.getElementById("tag-add");
-  if (tagAdd) {
-    tagAdd.addEventListener("change", async () => {
+  if (tagAdd && tagChips) {
+    tagAdd.addEventListener("change", () => {
       const names = tagAdd.value.split(",").map((s) => s.trim()).filter(Boolean);
       if (!names.length) return;
-      try {
-        await api(`/api/items/${itemId}/tags`, { method: "POST", body: JSON.stringify({ names }) });
-        location.reload();
-      } catch (e) { fail(e); }
+      save(() => api(`/api/items/${itemId}/tags`, { method: "POST", body: JSON.stringify({ names }) }))
+        .then(() => {
+          const have = new Set([...tagChips.querySelectorAll(".chip-del")].map((b) => b.dataset.tag));
+          names.filter((n) => !have.has(n)).forEach((n) => { have.add(n); addTagChip(n); });
+          tagAdd.value = "";
+        }).catch(() => {});
     });
   }
 
-  // collections: checkbox per collection
-  document.querySelectorAll("input.coll").forEach((cb) =>
-    cb.addEventListener("change", async () => {
+  // collections: searchable checkbox list + chips for the selected ones
+  const collList = document.getElementById("coll-list");
+  if (collList) {
+    const chipsEl = document.getElementById("coll-chips");
+    const syncChips = () => {
+      chipsEl.textContent = "";
+      collList.querySelectorAll("input.coll:checked").forEach((cb) => {
+        const path = cb.parentElement.querySelector("span").textContent;
+        const chip = document.createElement("span");
+        chip.className = "chip coll-chip";
+        chip.dataset.coll = cb.value;
+        chip.append(document.createTextNode(path));
+        const x = document.createElement("button");
+        x.type = "button";
+        x.className = "mini coll-del";
+        x.dataset.coll = cb.value;
+        x.setAttribute("aria-label", `Remove from ${path}`);
+        x.textContent = "×";
+        chip.append(x);
+        chipsEl.append(chip);
+      });
+    };
+    const toggle = (cb) => {
       const cid = +cb.value;
-      try {
-        if (cb.checked) {
-          await api(`/api/collections/${cid}/items`, {
-            method: "POST",
-            body: JSON.stringify({ item_ids: [itemId] }),
-          });
-        } else {
-          await api(`/api/collections/${cid}/items`, {
-            method: "DELETE",
-            body: JSON.stringify({ item_ids: [itemId] }),
-          });
-        }
-      } catch (e) { fail(e); cb.checked = !cb.checked; }
-    })
-  );
+      const method = cb.checked ? "POST" : "DELETE";
+      save(() => api(`/api/collections/${cid}/items`, { method, body: JSON.stringify({ item_ids: [itemId] }) }))
+        .then(syncChips)
+        .catch(() => { cb.checked = !cb.checked; syncChips(); });
+    };
+    collList.querySelectorAll("input.coll").forEach((cb) => cb.addEventListener("change", () => toggle(cb)));
+    chipsEl.addEventListener("click", (e) => {
+      const x = e.target.closest(".coll-del");
+      if (!x) return;
+      const cb = collList.querySelector(`input.coll[value="${x.dataset.coll}"]`);
+      if (cb) { cb.checked = false; toggle(cb); }
+    });
+    const filter = document.getElementById("coll-filter");
+    filter.addEventListener("input", () => {
+      const q = filter.value.trim().toLowerCase();
+      collList.querySelectorAll(".coll-opt").forEach((l) => { l.hidden = !!q && !l.dataset.path.includes(q); });
+    });
+  }
 
   // notes
   const noteAdd = document.getElementById("note-add");

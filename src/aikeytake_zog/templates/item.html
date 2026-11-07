@@ -1,9 +1,26 @@
 {% extends "base.html" %}
 {% block title %}{{ item.title if item else 'missing' }} — aikeytake-zog{% endblock %}
+{% macro creator_row(row, types) %}
+<div class="creator-row" data-kind="{{ row.kind }}" data-extra="{{ row.extra_json }}">
+  <select class="cr-type" aria-label="Creator type">
+    <option value="">(type)</option>
+    {% for t in types %}<option value="{{ t }}" {{ 'selected' if t == row.type else '' }}>{{ t }}</option>{% endfor %}
+    {% if row.type and row.type not in types %}<option value="{{ row.type }}" selected>{{ row.type }}</option>{% endif %}
+  </select>
+  {% if row.kind == "name" %}
+  <input class="cr-name" value="{{ row.name }}" placeholder="Name" aria-label="Creator name">
+  {% else %}
+  <input class="cr-first" value="{{ row.first }}" placeholder="First" aria-label="First name">
+  <input class="cr-last" value="{{ row.last }}" placeholder="Last" aria-label="Last name">
+  {% endif %}
+  <button type="button" class="icon-btn cr-del" aria-label="Remove creator">×</button>
+</div>
+{% endmacro %}
 {% block body %}
 {% if item %}
 <div hidden id="item-id">{{ item.id }}</div>
-<h1><input id="f-title" class="title-input wide" value="{{ item.title }}" placeholder="(untitled)"></h1>
+<h1><textarea id="f-title" class="title-input" rows="1" placeholder="(untitled)" aria-label="Title">{{ item.title }}</textarea></h1>
+<p id="save-status" class="save-status" role="status" aria-live="polite"></p>
 {% set pdfs = item.attachments | selectattr("kind", "equalto", "pdf") | selectattr("sha256") | rejectattr("missing") | list %}
 {% set src = item.url | safe_url %}
 {% set doi_link = item.doi | doi_url %}
@@ -14,89 +31,105 @@
   {% if doi_link %}<a class="btn open-doi" href="{{ doi_link }}" target="_blank" rel="noopener noreferrer">DOI {{ item.doi }} ↗</a>{% endif %}
 </p>
 {% endif %}
-<dl class="meta">
-  <dt>Type</dt><dd>
-    <select id="f-type">
-      {% for t in types %}<option value="{{ t }}" {{ 'selected' if t == item.type else '' }}>{{ t }}</option>{% endfor %}
-    </select>
-  </dd>
-  <dt>Date</dt><dd><input id="f-date" value="{{ item.date or '' }}" placeholder="yyyy-mm-dd"></dd>
-  <dt>URL</dt><dd><input id="f-url" class="wide" value="{{ item.url or '' }}"></dd>
-  <dt>DOI</dt><dd><input id="f-doi" value="{{ item.doi or '' }}"></dd>
-  <dt>Creators</dt><dd>
-    <textarea id="f-creators" rows="3" class="wide mono" placeholder='[{"first": "Y.", "last": "LeCun"}]'>{{ creators_json }}</textarea>
-    <span class="muted">JSON list of {"name": …} or {"first": …, "last": …}</span>
-  </dd>
-</dl>
 
-<h2>Abstract</h2>
-<textarea id="f-abstract" rows="4" class="wide" placeholder="(no abstract)">{{ item.abstract or '' }}</textarea>
+<div class="item-layout">
+<div class="item-main">
+  <h2>Abstract</h2>
+  <textarea id="f-abstract" rows="6" class="abstract" placeholder="(no abstract)">{{ item.abstract or '' }}</textarea>
 
-<h2>Fields</h2>
-<table id="fields">
-  <tr><th>Name</th><th>Value</th><th></th></tr>
-  {% for name, value in item.fields.items() %}
-  <tr>
-    <td><input class="fld-name" value="{{ name }}" data-old="{{ name }}"></td>
-    <td><input class="fld-value" value="{{ value }}"></td>
-    <td><button class="mini danger fld-del" data-name="{{ name }}">del</button></td>
-  </tr>
-  {% endfor %}
-</table>
-<button id="fld-add" class="linklike">+ add field</button>
-
-<h2>Tags</h2>
-<p class="chips">
-  {% for t in item.tags %}<span class="chip">{{ t }}<button class="mini chip-del" data-tag="{{ t }}">×</button></span>{% endfor %}
-  {% if not item.tags %}<span class="muted">no tags</span>{% endif %}
-</p>
-<input id="tag-add" placeholder="add tag(s), comma-separated">
-
-<h2>Collections</h2>
-<p class="coll-checks">
-  {% for c in all_collections %}
-  <label>
-    <input type="checkbox" class="coll" value="{{ c.id }}"
-      {{ 'checked' if c.id in item.collections | map(attribute='id') | list else '' }}>
-    {{ c.path }}
-  </label>
-  {% endfor %}
-  {% if not all_collections %}<span class="muted">no collections — create one from the library page</span>{% endif %}
-</p>
-
-<h2>Files</h2>
-<ul class="files">
-  {% for att in item.attachments %}
-  <li>
-    <strong>{{ att.filename or att.kind }}</strong>
-    {% if att.kind == "link" and att.url %}{% set lu = att.url | safe_url %}{% if lu %}<a href="{{ lu }}" target="_blank" rel="noopener noreferrer">open link ↗</a>{% else %}<span class="muted">{{ att.url }}</span>{% endif %}{% endif %}
-    {% if att.kind == "pdf" and att.sha256 and not att.missing %}<a class="btn open-pdf" href="/api/files/{{ att.id }}?inline=1" target="_blank" rel="noopener noreferrer">Open PDF{% if pdfs | length > 1 %}: {{ att.filename or att.id }}{% endif %}</a>{% endif %}
-    {% if att.sha256 and not att.missing %}<a href="/api/files/{{ att.id }}">download</a>{% endif %}
-    {% if att.missing %}<span class="missing">file missing</span>{% endif %}
-  </li>
-  {% if att.view_url %}
-  <li><iframe class="snapshot" src="{{ att.view_url }}" sandbox="" title="snapshot of {{ att.filename }}"></iframe></li>
-  {% endif %}
-  {% endfor %}
-  {% if not item.attachments %}<li class="muted">no files</li>{% endif %}
-</ul>
-
-<h2>Notes</h2>
-{% for n in item.notes %}
-<div class="note {{ 'annotation' if n.kind == 'annotation' else '' }}">
-  {% if n.kind == 'annotation' %}<span class="badge">annotation — read-only</span>{% endif %}
-  <div class="note-actions" {% if n.kind == 'annotation' %}hidden{% endif %}>
-    <button class="mini note-edit" data-note="{{ n.id }}">edit</button>
-    <button class="mini note-save" data-note="{{ n.id }}" hidden>save</button>
-    <button class="mini note-cancel" data-note="{{ n.id }}" hidden>cancel</button>
-    <button class="mini danger note-del" data-note="{{ n.id }}">delete</button>
+  <h2>Notes</h2>
+  {% for n in item.notes %}
+  <div class="note {{ 'annotation' if n.kind == 'annotation' else '' }}">
+    {% if n.kind == 'annotation' %}<span class="badge">annotation — read-only</span>{% endif %}
+    <div class="note-actions" {% if n.kind == 'annotation' %}hidden{% endif %}>
+      <button class="mini note-edit" data-note="{{ n.id }}">edit</button>
+      <button class="mini note-save" data-note="{{ n.id }}" hidden>save</button>
+      <button class="mini note-cancel" data-note="{{ n.id }}" hidden>cancel</button>
+      <button class="mini danger note-del" data-note="{{ n.id }}">delete</button>
+    </div>
+    <div class="note-body" data-note="{{ n.id }}">{{ n.body | safe }}</div>
+    <textarea class="note-editbox wide mono" data-note="{{ n.id }}" rows="4" hidden>{{ n.body }}</textarea>
   </div>
-  <div class="note-body" data-note="{{ n.id }}">{{ n.body | safe }}</div>
-  <textarea class="note-editbox wide mono" data-note="{{ n.id }}" rows="4" hidden>{{ n.body }}</textarea>
+  {% endfor %}
+  <textarea id="new-note" rows="3" class="wide" placeholder="Add a note (HTML allowed, sanitized on save)"></textarea>
+  <button id="note-add">Add note</button>
+
+  {% if item.attachments %}
+  <h2>Files</h2>
+  <ul class="files">
+    {% for att in item.attachments %}
+    <li>
+      <strong>{{ att.filename or att.kind }}</strong>
+      {% if att.kind == "link" and att.url %}{% set lu = att.url | safe_url %}{% if lu %}<a href="{{ lu }}" target="_blank" rel="noopener noreferrer">open link ↗</a>{% else %}<span class="muted">{{ att.url }}</span>{% endif %}{% endif %}
+      {% if att.kind == "pdf" and att.sha256 and not att.missing %}<a class="btn open-pdf" href="/api/files/{{ att.id }}?inline=1" target="_blank" rel="noopener noreferrer">Open PDF{% if pdfs | length > 1 %}: {{ att.filename or att.id }}{% endif %}</a>{% endif %}
+      {% if att.sha256 and not att.missing %}<a href="/api/files/{{ att.id }}">download</a>{% endif %}
+      {% if att.missing %}<span class="missing">file missing</span>{% endif %}
+    </li>
+    {% if att.view_url %}
+    <li><iframe class="snapshot" src="{{ att.view_url }}" sandbox="" title="snapshot of {{ att.filename }}"></iframe></li>
+    {% endif %}
+    {% endfor %}
+  </ul>
+  {% endif %}
 </div>
-{% else %}<p class="muted">No notes.</p>{% endfor %}
-<textarea id="new-note" rows="3" class="wide" placeholder="Add a note (HTML allowed, sanitized on save)"></textarea>
-<button id="note-add">Add note</button>
+
+<div class="item-side card">
+  <h2>Details</h2>
+  <dl class="meta">
+    <dt>Type</dt><dd>
+      <select id="f-type">
+        {% for t in types %}<option value="{{ t }}" {{ 'selected' if t == item.type else '' }}>{{ t }}</option>{% endfor %}
+      </select>
+    </dd>
+    <dt>Date</dt><dd><input id="f-date" value="{{ item.date or '' }}" placeholder="yyyy-mm-dd"></dd>
+    <dt>URL</dt><dd><input id="f-url" value="{{ item.url or '' }}"></dd>
+    <dt>DOI</dt><dd><input id="f-doi" value="{{ item.doi or '' }}"></dd>
+  </dl>
+
+  <h2>Creators</h2>
+  <div id="f-creators" class="creators">
+    {% for row in creator_rows %}{{ creator_row(row, creator_types) }}{% endfor %}
+  </div>
+  <template id="creator-tpl">{{ creator_row({"kind": "parts", "first": "", "last": "", "name": "", "type": "author", "extra_json": "{}"}, creator_types) }}</template>
+  <button type="button" id="cr-add" class="linklike">+ add creator</button>
+
+  <h2>Fields</h2>
+  <table id="fields">
+    <tr class="fields-head"><th>Name</th><th>Value</th><th></th></tr>
+    {% for name, value in item.fields.items() %}
+    <tr>
+      <td><input class="fld-name" value="{{ name }}" data-old="{{ name }}" aria-label="Field name"></td>
+      <td><input class="fld-value" value="{{ value }}" aria-label="Field value"></td>
+      <td><button class="mini danger fld-del" data-name="{{ name }}" aria-label="Delete field {{ name }}">del</button></td>
+    </tr>
+    {% endfor %}
+  </table>
+  <button type="button" id="fld-add" class="linklike">+ add field</button>
+
+  <h2>Tags</h2>
+  <p class="chips" id="tag-chips">
+    {% for t in item.tags %}<span class="chip tag-chip">{{ t }}<button class="mini chip-del" data-tag="{{ t }}" aria-label="Remove tag {{ t }}">×</button></span>{% endfor %}
+  </p>
+  <input id="tag-add" placeholder="add tag(s), comma-separated, Enter">
+
+  <h2>Collections</h2>
+  {% if all_collections %}
+  {% set member_ids = item.collections | map(attribute='id') | list %}
+  <div class="chips" id="coll-chips">
+    {% for c in all_collections if c.id in member_ids %}<span class="chip coll-chip" data-coll="{{ c.id }}">{{ c.path }}<button type="button" class="mini coll-del" data-coll="{{ c.id }}" aria-label="Remove from {{ c.path }}">×</button></span>{% endfor %}
+  </div>
+  <input id="coll-filter" type="search" placeholder="Filter {{ all_collections | length }} collections…" aria-label="Filter collections">
+  <div class="coll-list" id="coll-list">
+    {% for c in all_collections %}
+    <label class="coll-opt" data-path="{{ c.path | lower }}">
+      <input type="checkbox" class="coll" value="{{ c.id }}" {{ 'checked' if c.id in member_ids else '' }}>
+      <span>{{ c.path }}</span>
+    </label>
+    {% endfor %}
+  </div>
+  {% else %}<p class="muted">No collections — create one from the library page.</p>{% endif %}
+</div>
+</div>
 
 <p class="item-actions">
   {% if item.deleted_at %}

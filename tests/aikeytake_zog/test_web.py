@@ -108,7 +108,7 @@ def test_item_page_has_editing_controls(client):
     for needle in (
         'id="f-title"',          # editable title
         'id="f-abstract"',       # editable abstract
-        'id="f-creators"',       # creators JSON editor
+        'id="f-creators"',       # creators rows container
         'class="fld-name"',      # custom field row
         'data-tag="ml"',         # tag chip with delete
         'id="tag-add"',          # add tag input
@@ -430,3 +430,107 @@ def test_library_row_snapshot_badge(client):
     client.post("/login", data={"password": "test-pass"}, follow_redirects=False)
     _upload_snapshot(client)
     assert "snap-badge" in client.get("/").text
+
+
+# ---------- item page redesign ----------
+def test_item_page_shows_creators_as_rows_not_json(client):
+    iid = client.post("/api/items", json={"title": "T", "creators": [
+        {"first": "Yann", "last": "LeCun", "type": "author"}, {"name": "ACME Lab"}]}).json()["id"]
+    _login(client)
+    html = client.get(f"/items/{iid}").text
+    assert '"first":' not in html
+    assert 'value="Yann"' in html and 'value="LeCun"' in html
+    assert 'value="ACME Lab"' in html
+    assert 'class="creator-row"' in html
+    assert "<textarea id=\"f-creators\"" not in html
+
+
+def test_item_page_collections_show_full_path(client):
+    p = client.post("/api/collections", json={"name": "Parent"}).json()["id"]
+    c = client.post("/api/collections", json={"name": "Child", "parent_id": p}).json()["id"]
+    iid = client.post("/api/items", json={"title": "T"}).json()["id"]
+    client.post(f"/api/collections/{c}/items", json={"item_ids": [iid]})
+    _login(client)
+    html = client.get(f"/items/{iid}").text
+    assert "Parent / Child" in html or "Parent &gt; Child" in html or "Parent › Child" in html
+    assert 'id="coll-filter"' in html
+    assert 'class="chip coll-chip"' in html
+
+
+def test_item_page_tags_render_as_removable_chips(client):
+    iid = client.post("/api/items", json={"title": "T"}).json()["id"]
+    client.post(f"/api/items/{iid}/tags", json={"names": ["ml", "a<b"]})
+    _login(client)
+    html = client.get(f"/items/{iid}").text
+    assert 'class="chip tag-chip"' in html
+    assert 'data-tag="ml"' in html and 'aria-label="Remove tag ml"' in html
+    assert "a&lt;b" in html and "a<b" not in html
+
+
+def test_item_page_empty_item_has_no_none_or_empty_widgets(client):
+    iid = client.post("/api/items", json={"title": "Bare"}).json()["id"]
+    _login(client)
+    html = client.get(f"/items/{iid}").text
+    assert "None" not in html
+    assert 'class="chip ' not in html
+    assert 'class="note' not in html
+
+
+@pytest.mark.parametrize("creators", [
+    [{"name": "Only Name", "type": "editor"}],
+    [{"last": "Solo"}],
+    [{"first": "F", "last": "L", "type": "editor", "orcid": "0000-1", "name": "F L"}],
+])
+def test_creator_rows_roundtrip_shapes(creators):
+    import json as _j
+    from aikeytake_zog.web import creator_rows
+    rows = creator_rows(creators)
+    assert len(rows) == 1
+    r = rows[0]
+    rebuilt = dict(_j.loads(r["extra_json"]))
+    if r["type"]:
+        rebuilt["type"] = r["type"]
+    if r["kind"] == "name":
+        rebuilt["name"] = r["name"]
+    else:
+        if r["first"]:
+            rebuilt["first"] = r["first"]
+        if r["last"]:
+            rebuilt["last"] = r["last"]
+    assert rebuilt == creators[0]
+    assert (r["kind"] == "name") == (set(creators[0]) - {"type"} == {"name"})
+
+
+@pytest.mark.parametrize("garbage", [None, "oops", 5, {"a": 1}, [1, "x", None, ["y"]]])
+def test_creator_rows_garbage_is_empty(garbage):
+    from aikeytake_zog.web import creator_rows
+    assert creator_rows(garbage) == []
+
+
+def test_item_page_survives_garbage_creators_in_db(client):
+    iid = client.post("/api/items", json={"title": "G"}).json()["id"]
+    conn = zog_db.connect(client.settings.db_path)
+    conn.execute("UPDATE items SET creators=? WHERE id=?", ('{"not": "a list"}', iid))
+    conn.commit(); conn.close()
+    _login(client)
+    assert client.get(f"/items/{iid}").status_code == 200
+    conn = zog_db.connect(client.settings.db_path)
+    conn.execute("UPDATE items SET creators=? WHERE id=?", ("[1, 2, {\"name\": \"ok\"}]", iid))
+    conn.commit(); conn.close()
+    r = client.get(f"/items/{iid}")
+    assert r.status_code == 200 and 'value="ok"' in r.text
+
+
+def test_item_page_json_cannot_break_out_of_script(client):
+    iid = client.post("/api/items", json={"title": "X", "abstract": "</script><b>x</b>"}).json()["id"]
+    _login(client)
+    html = client.get(f"/items/{iid}").text
+    assert "</script><b>" not in html
+
+
+def test_item_page_has_status_line_and_two_column_layout(client):
+    iid = client.post("/api/items", json={"title": "T"}).json()["id"]
+    _login(client)
+    html = client.get(f"/items/{iid}").text
+    assert 'id="save-status"' in html and 'aria-live="polite"' in html
+    assert "item-layout" in html and "item-side" in html

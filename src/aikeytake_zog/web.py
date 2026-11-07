@@ -58,6 +58,40 @@ def doi_url(value) -> str | None:
     return "https://doi.org/" + quote(v, safe="/:()") if _DOI_RE.match(v) else None
 
 
+def creator_rows(raw) -> list[dict]:
+    """Normalise a stored creators value into editable rows for the item page.
+
+    Tolerates legacy/garbage values: a non-list yields no rows, non-dict
+    entries are skipped. `extra_json` carries every key the row does not show
+    (so the page can write it back untouched); `type` is shown separately.
+    """
+    rows = []
+    for c in raw if isinstance(raw, list) else []:
+        if not isinstance(c, dict):
+            continue
+        first = c.get("first") if isinstance(c.get("first"), str) else ""
+        last = c.get("last") if isinstance(c.get("last"), str) else ""
+        name = c.get("name") if isinstance(c.get("name"), str) else ""
+        typ = c.get("type") if isinstance(c.get("type"), str) else ""
+        kind = "name" if (name.strip() and not (first.strip() or last.strip())) else "parts"
+        shown = {"type"} if typ else set()
+        if kind == "name":
+            shown.add("name")
+            first = last = ""
+        else:
+            name = ""
+            if isinstance(c.get("first"), str):
+                shown.add("first")
+            if isinstance(c.get("last"), str):
+                shown.add("last")
+        extra = {k: v for k, v in c.items() if k not in shown}
+        rows.append({
+            "kind": kind, "first": first, "last": last, "name": name, "type": typ,
+            "extra_json": json.dumps(extra, ensure_ascii=False),
+        })
+    return rows
+
+
 def highlight(text, q) -> Markup:
     """Escape `text` and wrap case-insensitive matches of the query words in <mark>.
 
@@ -240,7 +274,8 @@ def web_routes(app) -> None:
             "item.html",
             {
                 "item": item,
-                "creators_json": json.dumps(item["creators"], ensure_ascii=False),
+                "creator_rows": creator_rows(item["creators"]),
+                "creator_types": ["author", "editor", "contributor", "translator", "seriesEditor"],
                 "all_collections": collections.tree_flat(conn),
                 "types": [r["type"] for r in conn.execute("SELECT DISTINCT type FROM items ORDER BY type")],
             },
