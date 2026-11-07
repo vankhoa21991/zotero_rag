@@ -62,3 +62,34 @@ test("libraryLink_builds_items_url", () => {
   assert.equal(libraryLink("http://h:8000/", 5), "http://h:8000/items/5");
   assert.equal(libraryLink("https://z.example.com/zog", 12), "https://z.example.com/zog/items/12");
 });
+
+import { assetFetchPolicy } from "../src/popup-logic.js";
+
+test("assetFetchPolicy_same_origin_includes_cookies", () => {
+  assert.deepEqual(assetFetchPolicy("https://e.com/a", "https://e.com/s.css"), { allow: true, credentials: "include" });
+});
+
+test("assetFetchPolicy_cross_origin_omits_cookies", () => {
+  assert.deepEqual(assetFetchPolicy("https://e.com/a", "https://cdn.other.com/i.png"), { allow: true, credentials: "omit" });
+  assert.equal(assetFetchPolicy("https://e.com/a", "http://e.com/i.png").credentials, "omit");
+});
+
+test("assetFetchPolicy_blocks_intranet_from_public_page", () => {
+  for (const u of ["http://localhost/x", "http://127.0.0.1:8000/x", "http://10.1.2.3/x", "http://172.16.0.1/x", "http://172.31.255.1/x",
+    "http://192.168.1.1/x", "http://169.254.169.254/x", "http://[::1]/x", "http://[fd12::1]/x", "http://[fe80::1]/x", "http://nas.local/x", "http://0.0.0.0/x"]) {
+    assert.equal(assetFetchPolicy("https://e.com/a", u).allow, false, u);
+  }
+  assert.equal(assetFetchPolicy("https://e.com/a", "http://172.32.0.1/x").allow, true);
+});
+
+test("assetFetchPolicy_allows_intranet_from_intranet_page", () => {
+  assert.equal(assetFetchPolicy("http://localhost:8400/a", "http://127.0.0.1:8400/x").allow, true);
+  assert.equal(assetFetchPolicy("http://192.168.1.5/a", "http://192.168.1.6/x").allow, true);
+  assert.equal(assetFetchPolicy("http://192.168.1.5/a", "http://192.168.1.5/x").credentials, "include");
+});
+
+test("assetFetchPolicy_blocks_non_http", () => {
+  for (const u of ["file:///etc/passwd", "ftp://e.com/x", "data:text/css,a", "chrome://x", "not a url"]) {
+    assert.equal(assetFetchPolicy("https://e.com/a", u).allow, false, u);
+  }
+});

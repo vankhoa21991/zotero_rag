@@ -3,7 +3,7 @@ import { createClient, flattenCollections } from "./api.js";
 import { parseTags, cleanTitle } from "./metadata.js";
 import { capturePage } from "./capture.js";
 import { savePage, savePdf, MAX_PDF_BYTES } from "./save.js";
-import { classifyTab, errorMessage, libraryLink } from "./popup-logic.js";
+import { classifyTab, errorMessage, libraryLink, assetFetchPolicy } from "./popup-logic.js";
 
 const ext = globalThis.browser ?? globalThis.chrome;
 const $ = (id) => document.getElementById(id);
@@ -45,7 +45,9 @@ async function readLimited(res, max) {
 
 async function fetchAsset(url) {
   try {
-    const res = await fetch(url, { credentials: "include", signal: AbortSignal.timeout(ASSET_TIMEOUT_MS) });
+    const policy = assetFetchPolicy(state.tab?.url, url);
+    if (!policy.allow) return null;
+    const res = await fetch(url, { credentials: policy.credentials, signal: AbortSignal.timeout(ASSET_TIMEOUT_MS) });
     if (!res.ok) return null;
     const chunks = await readLimited(res, ASSET_MAX_BYTES);
     const data = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0));
@@ -108,12 +110,14 @@ function showResult(r) {
 // ---- tags
 function renderChips() {
   $("chips").replaceChildren(
-    ...state.tags.map((t) =>
-      el("li", { className: "chip" }, t, el("button", {
-        type: "button", textContent: "×", title: `Remove ${t}`, ariaLabel: `Remove tag ${t}`,
+    ...state.tags.map((t) => {
+      const b = el("button", {
+        type: "button", textContent: "×", title: `Remove ${t}`, 
         onclick: () => { state.tags = state.tags.filter((x) => x !== t); renderChips(); },
-      })),
-    ),
+      });
+      b.setAttribute("aria-label", `Remove tag ${t}`);
+      return el("li", { className: "chip" }, t, b);
+    }),
   );
 }
 
@@ -148,9 +152,6 @@ async function run(saveSnapshot, force = false) {
   setBusy(true);
   showBanner("Saving…", false, true);
   try {
-    await ext.storage.local.set({ lastCollection: options.collectionId });
-  } catch { /* convenience only */ }
-  try {
     const tab = state.tab;
     let r;
     if (state.cls.kind === "pdf") {
@@ -170,6 +171,9 @@ async function run(saveSnapshot, force = false) {
       });
     }
     showResult(r);
+    try {
+      await ext.storage.local.set({ lastCollection: options.collectionId });
+    } catch { /* convenience only */ }
   } catch (e) {
     $("form").hidden = false;
     showError(e);

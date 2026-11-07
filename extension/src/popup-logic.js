@@ -53,3 +53,31 @@ export function errorMessage(err, serverUrl) {
 export function libraryLink(serverUrl, itemId) {
   return `${String(serverUrl).replace(/\/+$/, "")}/items/${itemId}`;
 }
+
+function isPrivateHost(host) {
+  const h = String(host).toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
+  if (h === "localhost" || h.endsWith(".localhost") || h.endsWith(".local")) return true;
+  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h);
+  if (m) {
+    const [a, b] = [Number(m[1]), Number(m[2])];
+    return a === 10 || a === 127 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 169 && b === 254) || a === 0;
+  }
+  if (h.includes(":")) {
+    if (h === "::1" || h === "::") return true;
+    const first = parseInt(h.split(":")[0] || "0", 16);
+    if ((first & 0xfe00) === 0xfc00 || (first & 0xffc0) === 0xfe80) return true;
+    if (/^::ffff:/.test(h)) return true; // IPv4-mapped: be conservative
+  }
+  return false;
+}
+
+// Decides whether the extension may fetch an asset URL found in a page, and with which credentials.
+// Cookies go only to the page's own origin; a public page may not make us reach private/LAN hosts.
+export function assetFetchPolicy(pageUrl, assetUrl) {
+  const deny = { allow: false, credentials: "omit" };
+  let p, a;
+  try { p = new URL(pageUrl); a = new URL(assetUrl); } catch { return deny; }
+  if (!/^https?:$/.test(a.protocol) || !/^https?:$/.test(p.protocol)) return deny;
+  if (isPrivateHost(a.hostname) && !isPrivateHost(p.hostname)) return deny;
+  return { allow: true, credentials: a.origin === p.origin ? "include" : "omit" };
+}
