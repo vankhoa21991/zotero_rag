@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block title %}{{ item.title if item else 'missing' }} — aikeytake-zog{% endblock %}
+{% block body %}
+{% if item %}
+<div hidden id="item-id">{{ item.id }}</div>
+<h1><input id="f-title" class="title-input wide" value="{{ item.title }}" placeholder="(untitled)"></h1>
+<dl class="meta">
+  <dt>Type</dt><dd>
+    <select id="f-type">
+      {% for t in types %}<option value="{{ t }}" {{ 'selected' if t == item.type else '' }}>{{ t }}</option>{% endfor %}
+    </select>
+  </dd>
+  <dt>Date</dt><dd><input id="f-date" value="{{ item.date or '' }}" placeholder="yyyy-mm-dd"></dd>
+  <dt>URL</dt><dd><input id="f-url" class="wide" value="{{ item.url or '' }}"></dd>
+  <dt>DOI</dt><dd><input id="f-doi" value="{{ item.doi or '' }}"></dd>
+  <dt>Creators</dt><dd>
+    <textarea id="f-creators" rows="3" class="wide mono" placeholder='[{"first": "Y.", "last": "LeCun"}]'>{{ creators_json }}</textarea>
+    <span class="muted">JSON list of {"name": …} or {"first": …, "last": …}</span>
+  </dd>
+</dl>
+
+<h2>Abstract</h2>
+<textarea id="f-abstract" rows="4" class="wide" placeholder="(no abstract)">{{ item.abstract or '' }}</textarea>
+
+<h2>Fields</h2>
+<table id="fields">
+  <tr><th>Name</th><th>Value</th><th></th></tr>
+  {% for name, value in item.fields.items() %}
+  <tr>
+    <td><input class="fld-name" value="{{ name }}" data-old="{{ name }}"></td>
+    <td><input class="fld-value" value="{{ value }}"></td>
+    <td><button class="mini danger fld-del" data-name="{{ name }}">del</button></td>
+  </tr>
+  {% endfor %}
+</table>
+<button id="fld-add" class="linklike">+ add field</button>
+
+<h2>Tags</h2>
+<p class="chips">
+  {% for t in item.tags %}<span class="chip">{{ t }}<button class="mini chip-del" data-tag="{{ t }}">×</button></span>{% endfor %}
+  {% if not item.tags %}<span class="muted">no tags</span>{% endif %}
+</p>
+<input id="tag-add" placeholder="add tag(s), comma-separated">
+
+<h2>Collections</h2>
+<p class="coll-checks">
+  {% for c in all_collections %}
+  <label style="padding-left: {{ c.depth * 1.25 }}em">
+    <input type="checkbox" class="coll" value="{{ c.id }}"
+      {{ 'checked' if c.id in item.collections | map(attribute='id') | list else '' }}>
+    {{ c.name }}
+  </label>
+  {% endfor %}
+  {% if not all_collections %}<span class="muted">no collections — create one from the library page</span>{% endif %}
+</p>
+
+<h2>Files</h2>
+<ul class="files">
+  {% for att in item.attachments %}
+  <li>
+    <strong>{{ att.filename or att.kind }}</strong>
+    {% if att.kind == "link" and att.url %}<a href="{{ att.url }}" rel="noopener">open link ↗</a>{% endif %}
+    {% if att.sha256 and not att.missing %}<a href="/api/files/{{ att.id }}">download</a>{% endif %}
+    {% if att.missing %}<span class="missing">file missing</span>{% endif %}
+  </li>
+  {% if att.view_url %}
+  <li><iframe class="snapshot" src="{{ att.view_url }}" sandbox="" title="snapshot of {{ att.filename }}"></iframe></li>
+  {% endif %}
+  {% endfor %}
+  {% if not item.attachments %}<li class="muted">no files</li>{% endif %}
+</ul>
+
+<h2>Notes</h2>
+{% for n in item.notes %}
+<div class="note {{ 'annotation' if n.kind == 'annotation' else '' }}">
+  {% if n.kind == 'annotation' %}<span class="badge">annotation — read-only</span>{% endif %}
+  <div class="note-actions" {% if n.kind == 'annotation' %}hidden{% endif %}>
+    <button class="mini note-edit" data-note="{{ n.id }}">edit</button>
+    <button class="mini note-save" data-note="{{ n.id }}" hidden>save</button>
+    <button class="mini note-cancel" data-note="{{ n.id }}" hidden>cancel</button>
+    <button class="mini danger note-del" data-note="{{ n.id }}">delete</button>
+  </div>
+  <div class="note-body" data-note="{{ n.id }}">{{ n.body | safe }}</div>
+  <textarea class="note-editbox wide mono" data-note="{{ n.id }}" rows="4" hidden>{{ n.body }}</textarea>
+</div>
+{% else %}<p class="muted">No notes.</p>{% endfor %}
+<textarea id="new-note" rows="3" class="wide" placeholder="Add a note (HTML allowed, sanitized on save)"></textarea>
+<button id="note-add">Add note</button>
+
+<p class="item-actions">
+  {% if item.deleted_at %}
+  <button id="restore">Restore from trash</button>
+  <span class="missing">in trash</span>
+  {% else %}
+  <button id="trash" class="danger">Move to trash</button>
+  {% endif %}
+  <a href="/">&larr; back to library</a>
+</p>
+{% else %}
+<h1>Item not found</h1>
+<p><a href="/">&larr; back to library</a></p>
+{% endif %}
+{% endblock %}

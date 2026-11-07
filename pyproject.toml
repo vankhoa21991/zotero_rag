@@ -18,10 +18,10 @@ server = ["fastapi", "uvicorn", "jinja2", "python-multipart", "httpx", "nh3"]
 
 [project.scripts]
 zrag = "zotero_rag.cli:main"
-shelf = "shelf.cli:main"
+aikeytake-zog = "aikeytake_zog.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-shelf = ["templates/*.html", "static/*"]
+aikeytake_zog = ["templates/*.html", "static/*"]

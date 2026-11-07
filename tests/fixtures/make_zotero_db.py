@@ -1,4 +1,4 @@
-"""Build a minimal Zotero-schema SQLite DB for shelf tests (plan Task 10).
+"""Build a minimal Zotero-schema SQLite DB for aikeytake_zog tests (plan Task 10).
 
 `build(path, storage_dir=None)` creates a small but schema-faithful
 zotero.sqlite with the content required by the plan: two normal items (a

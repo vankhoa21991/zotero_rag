@@ -1,0 +1,29 @@
+# aikeytake-zog — self-hosted library server (systemd unit, example)
+#
+# Install:
+#   sudo cp deploy/aikeytake-zog.service /etc/systemd/system/
+#   # edit User= and Environment=AIKEYTAKE_ZOG_DATA_DIR= to match your setup
+#   sudo systemctl daemon-reload && sudo systemctl enable --now aikeytake-zog
+#
+# Behind a reverse proxy with HTTPS, add:
+#   Environment=AIKEYTAKE_ZOG_COOKIE_SECURE=1
+
+[Unit]
+Description=aikeytake-zog library server
+After=network.target
+
+[Service]
+Type=simple
+User=lupin
+WorkingDirectory=/home/lupin/projects/zotero-rag
+Environment=AIKEYTAKE_ZOG_DATA_DIR=/home/lupin/aikeytake-zog-data
+# Environment=AIKEYTAKE_ZOG_COOKIE_SECURE=1
+ExecStart=/home/lupin/projects/zotero-rag/.venv/bin/aikeytake-zog serve --host 127.0.0.1 --port 8321
+Restart=on-failure
+RestartSec=3
+# the server is single-user; keep it modest
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target

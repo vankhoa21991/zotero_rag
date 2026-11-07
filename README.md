@@ -9,13 +9,13 @@ llama.cpp models, and the index is a single SQLite file.
 (~2,400 items, hours) has not been done yet — search works on titles/abstracts/notes now
 and gets better as summaries land. See [PLAN.md](PLAN.md) for the plan and open questions.
 
-## shelf — self-hosted library server
+## aikeytake-zog — self-hosted library server
 
-This repo also contains **shelf**, a small self-hosted server for the library itself:
+This repo also contains **aikeytake-zog**, a small self-hosted server for the library itself:
 items, collections, tags, notes, annotations and attachment files in one SQLite DB +
 file store, with a web UI, a JSON API for agents, full-text search over extracted PDF/
 snapshot text, and an idempotent importer that brings in your whole Zotero library
-read-only. See [docs/shelf.md](docs/shelf.md) for install, import, re-import rules,
+read-only. See [docs/aikeytake-zog.md](docs/aikeytake-zog.md) for install, import, re-import rules,
 backups, systemd/Docker and HTTPS.
 
 ## Quick start

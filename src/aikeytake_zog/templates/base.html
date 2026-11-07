@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>{% block title %}aikeytake-zog{% endblock %}</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <nav>
+    <a href="/" class="brand">aikeytake-zog</a>
+    <a href="/history">History</a>
+    <a href="/settings">Settings</a>
+    <form method="post" action="/logout" class="inline"><button type="submit" class="linklike">Sign out</button></form>
+  </nav>
+  <main>
+    {% block body %}{% endblock %}
+  </main>
+</body>
+</html>
