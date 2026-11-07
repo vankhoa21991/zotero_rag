@@ -209,13 +209,15 @@ def build_router() -> APIRouter:
         tag: str | None = None,
         type: str | None = None,
         trashed: bool = False,
+        recursive: bool = False,
         limit: int = Query(50, ge=1, le=200),
         offset: int = Query(0, ge=0),
         conn=Depends(get_conn),
     ):
         if q:
             return search.search(
-                conn, q, collection_id=collection, tag=tag, type=type, limit=limit, offset=offset
+                conn, q, collection_id=collection, tag=tag, type=type, limit=limit, offset=offset,
+                recursive=recursive,
             )
         return items.list_items(
             conn,
@@ -225,6 +227,7 @@ def build_router() -> APIRouter:
             trashed=trashed,
             limit=limit,
             offset=offset,
+            recursive=recursive,
         )
 
     @r.post("/items", status_code=201)

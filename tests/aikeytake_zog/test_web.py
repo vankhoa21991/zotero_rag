@@ -648,3 +648,47 @@ def test_palette_meets_contrast(client):
             assert fg in toks and bg in toks, f"{theme}: {fg} or {bg} not a #rrggbb token"
             ratio = _contrast(toks[fg], toks[bg])
             assert ratio >= 4.5, f"{theme}: {fg} {toks[fg]} on {bg} {toks[bg]} = {ratio:.2f} < 4.5"
+
+
+def _rec_setup(client):
+    p = client.post("/api/collections", json={"name": "Parent"}).json()["id"]
+    ch = client.post("/api/collections", json={"name": "Child", "parent_id": p}).json()["id"]
+    iid = client.post("/api/items", json={"title": "Deep paper"}).json()["id"]
+    client.post(f"/api/collections/{ch}/items", json={"item_ids": [iid]})
+    client.post("/login", data={"password": "test-pass"}, follow_redirects=False)
+    return p, ch, iid
+
+
+def test_library_page_defaults_to_recursive_and_checkbox_unticks(client):
+    p, ch, iid = _rec_setup(client)
+    page = client.get(f"/?collection={p}")
+    assert "Deep paper" in page.text
+    assert 'name="recursive" value="1" checked' in page.text
+    assert 'name="recursive" value="0"' in page.text  # hidden: unticked box still sends 0
+    off = client.get(f"/?collection={p}&recursive=0")
+    assert "Deep paper" not in off.text
+    assert 'name="recursive" value="1" checked' not in off.text
+    # the filter form keeps the collection so Filter does not drop it
+    assert f'name="collection" value="{p}"' in off.text
+    # ticked submission (hidden 0 then checkbox 1) wins
+    on = client.get(f"/?collection={p}&recursive=0&recursive=1")
+    assert "Deep paper" in on.text
+    # sidebar: parent shows the recursive total, never 0
+    assert 'coll-count" title="1 items including sub-collections">1<' in page.text
+
+
+def test_paging_with_recursive_collection(client):
+    p = client.post("/api/collections", json={"name": "Parent"}).json()["id"]
+    ch = client.post("/api/collections", json={"name": "Child", "parent_id": p}).json()["id"]
+    ids = [client.post("/api/items", json={"title": f"I{n:03d}"}).json()["id"] for n in range(105)]
+    client.post(f"/api/collections/{ch}/items", json={"item_ids": ids})
+    client.post("/login", data={"password": "test-pass"}, follow_redirects=False)
+    p1 = client.get(f"/?collection={p}")
+    assert p1.text.count('class="item-row"') == 100
+    assert f"collection={p}&recursive=1&page=2" in p1.text
+    p2 = client.get(f"/?collection={p}&recursive=1&page=2")
+    assert p2.text.count('class="item-row"') == 5
+    # unchecked state survives in the pager link
+    p1_off = client.get(f"/?collection={ch}&recursive=0")
+    assert f"collection={ch}&recursive=0&page=2" in p1_off.text
+    assert client.get(f"/?collection={p}&recursive=0").text.count('class="item-row"') == 0

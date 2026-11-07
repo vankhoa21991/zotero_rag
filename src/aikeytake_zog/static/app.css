@@ -136,6 +136,9 @@ textarea.wide { min-height: 3rem; }
 /* ---------- library: filters, sidebar, list ---------- */
 .filters { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1rem; }
 .filters input[type="search"] { flex: 1 1 16rem; min-width: 12rem; }
+.filters .inline-check { display: inline-flex; align-items: center; gap: 0.375rem; flex: none; font-size: 0.875rem; color: var(--muted); min-height: 2.25rem; }
+.filters .inline-check input { width: auto; margin: 0; }
+.coll-direct { font-weight: 400; opacity: 0.8; white-space: nowrap; }
 .filters select { flex: 1 1 8rem; max-width: 14rem; min-width: 0; }
 .layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; }
 @media (min-width: 48rem) {

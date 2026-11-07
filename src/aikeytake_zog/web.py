@@ -247,6 +247,7 @@ def web_routes(app) -> None:
         type: str | None = None,
         tag: str | None = None,
         collection: int | None = None,
+        recursive: str | None = None,
         page: int = 1,
         conn=Depends(get_conn),
     ):
@@ -256,15 +257,18 @@ def web_routes(app) -> None:
         flat = collections.tree_flat(conn)
         page = max(1, page)
         limit, offset = 100, (page - 1) * 100
+        # Default on; only an explicit falsy value (the form sends recursive=0
+        # when the box is unticked) turns it off.
+        rec = (recursive or "").strip().lower() not in ("0", "false", "off", "no")
         if q:
             rows = search.search(
                 conn, q, collection_id=collection, tag=tag, type=type,
-                limit=limit, offset=offset,
+                limit=limit, offset=offset, recursive=rec,
             )
         else:
             rows = items.list_items(
                 conn, collection_id=collection, tag=tag, type=type,
-                limit=limit, offset=offset,
+                limit=limit, offset=offset, recursive=rec,
             )
         return templates.TemplateResponse(
             request,
@@ -275,6 +279,7 @@ def web_routes(app) -> None:
                 "type": type,
                 "tag": tag,
                 "collection": collection,
+                "recursive": rec,
                 "page": page,
                 "has_next": len(rows) == limit,
                 "collections": collections.tree(conn),

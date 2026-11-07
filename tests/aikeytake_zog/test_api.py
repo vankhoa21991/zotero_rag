@@ -391,3 +391,19 @@ def test_inline_requires_auth(env):
     iid = c.post("/api/items", json={"title": "T"}, headers=w).json()["id"]
     att = _upload(c, w, iid, "pdf", "a.pdf", b"%PDF-1.4 x")
     assert c.get(f"/api/files/{att['id']}?inline=1").status_code == 401
+
+
+def test_api_items_recursive_param_defaults_false(env):
+    c, w = env["client"], {"Authorization": f"Bearer {env['write']}"}
+    p = c.post("/api/collections", json={"name": "P"}, headers=w).json()["id"]
+    ch = c.post("/api/collections", json={"name": "C", "parent_id": p}, headers=w).json()["id"]
+    iid = c.post("/api/items", json={"title": "child item"}, headers=w).json()["id"]
+    c.post(f"/api/collections/{ch}/items", json={"item_ids": [iid]}, headers=w)
+    assert c.get(f"/api/items?collection={p}", headers=w).json() == []
+    assert c.get(f"/api/items?collection={p}&recursive=false", headers=w).json() == []
+    got = c.get(f"/api/items?collection={p}&recursive=true", headers=w).json()
+    assert [r["id"] for r in got] == [iid]
+    q = c.get(f"/api/items?q=child&collection={p}&recursive=true", headers=w).json()
+    assert [r["id"] for r in q] == [iid]
+    tree = c.get("/api/collections", headers=w).json()
+    assert tree[0]["total"] == 1 and tree[0]["count"] == 0

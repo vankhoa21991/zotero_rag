@@ -141,3 +141,39 @@ def test_tree_flat_has_full_path(conn):
     assert rows[b]["path"] == "A / B"
     assert rows[c]["path"] == "A / B / C"
     assert rows[c]["depth"] == 2 and rows[c]["parent_id"] == b
+
+
+def test_descendant_ids_three_levels(conn):
+    parent, child, grandchild = _tree(conn)
+    other = collections.create(conn, "Other", actor="user")
+    conn.commit()
+    assert set(collections.descendant_ids(conn, parent)) == {parent, child, grandchild}
+    assert set(collections.descendant_ids(conn, child)) == {child, grandchild}
+    assert collections.descendant_ids(conn, grandchild) == [grandchild]
+    assert collections.descendant_ids(conn, other) == [other]
+
+
+def test_descendant_ids_handles_cycle_in_bad_data(conn):
+    parent, child, grandchild = _tree(conn)
+    conn.execute("UPDATE collections SET parent_id=? WHERE id=?", (grandchild, parent))
+    conn.commit()
+    assert set(collections.descendant_ids(conn, parent)) == {parent, child, grandchild}
+    collections.tree(conn)  # must not hang either
+
+
+def test_tree_totals_include_descendants(conn):
+    parent, child, grandchild = _tree(conn)
+    a = items.create_item(conn, {"title": "A"}, actor="user")
+    b = items.create_item(conn, {"title": "B"}, actor="user")
+    t = items.create_item(conn, {"title": "Trashed"}, actor="user")
+    collections.add_items(conn, parent, [a])
+    collections.add_items(conn, child, [a, b])  # a is in both: counted once
+    collections.add_items(conn, grandchild, [t])
+    items.trash_item(conn, t, actor="user")
+    conn.commit()
+    root = collections.tree(conn)[0]
+    assert (root["count"], root["total"]) == (1, 2)
+    c = root["children"][0]
+    assert (c["count"], c["total"]) == (2, 2)
+    g = c["children"][0]
+    assert (g["count"], g["total"]) == (0, 0)

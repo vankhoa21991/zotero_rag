@@ -232,3 +232,47 @@ def test_row_summary_edge_cases(conn):
     conn.execute("UPDATE items SET creators='{not json'")
     conn.commit()
     assert items.list_items(conn)[0]["creators_short"] == ""
+
+
+def _coll_tree(conn):
+    from aikeytake_zog import collections
+    p = collections.create(conn, "P", actor="user")
+    c = collections.create(conn, "C", parent_id=p, actor="user")
+    return p, c
+
+
+def test_list_items_recursive_includes_children_once(conn):
+    from aikeytake_zog import collections
+    p, c = _coll_tree(conn)
+    a = items.create_item(conn, {"title": "in parent"}, actor="user")
+    b = items.create_item(conn, {"title": "in child"}, actor="user")
+    both = items.create_item(conn, {"title": "in both"}, actor="user")
+    collections.add_items(conn, p, [a, both])
+    collections.add_items(conn, c, [b, both])
+    conn.commit()
+    flat = items.list_items(conn, collection_id=p)
+    assert {r["id"] for r in flat} == {a, both}
+    rec = items.list_items(conn, collection_id=p, recursive=True)
+    assert sorted(r["id"] for r in rec) == sorted([a, b, both])
+    assert len(items.list_items(conn, collection_id=c, recursive=True)) == 2
+
+
+def test_list_items_recursive_excludes_trashed(conn):
+    from aikeytake_zog import collections
+    p, c = _coll_tree(conn)
+    a = items.create_item(conn, {"title": "kept"}, actor="user")
+    b = items.create_item(conn, {"title": "gone"}, actor="user")
+    collections.add_items(conn, c, [a, b])
+    items.trash_item(conn, b, actor="user")
+    conn.commit()
+    assert [r["id"] for r in items.list_items(conn, collection_id=p, recursive=True)] == [a]
+
+
+def test_search_recursive_collection_filter(conn):
+    from aikeytake_zog import collections
+    p, c = _coll_tree(conn)
+    a = items.create_item(conn, {"title": "quantum widgets"}, actor="user")
+    collections.add_items(conn, c, [a])
+    conn.commit()
+    assert search.search(conn, "quantum", collection_id=p) == []
+    assert [r["id"] for r in search.search(conn, "quantum", collection_id=p, recursive=True)] == [a]

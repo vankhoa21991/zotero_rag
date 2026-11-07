@@ -8,7 +8,7 @@ hard-deleted: trash sets `deleted_at`, restore clears it.
 import json
 import sqlite3
 
-from aikeytake_zog import changelog, search
+from aikeytake_zog import changelog, collections, search
 
 CORE_FIELDS = ("type", "title", "creators", "date", "url", "abstract", "doi")
 # Custom fields may never use these names: they collide with item columns and
@@ -261,12 +261,24 @@ def list_items(
     trashed: bool = False,
     limit: int = 50,
     offset: int = 0,
+    recursive: bool = False,
 ) -> list[dict]:
-    """Summary rows ordered by modified desc; hidden items excluded unless trashed=True."""
+    """Summary rows ordered by modified desc; hidden items excluded unless trashed=True.
+
+    With `recursive`, a collection filter also covers all its sub-collections
+    (each item still appears once).
+    """
     sql = "SELECT i.* FROM items i"
     where = ["i.deleted_at IS NOT NULL" if trashed else "i.deleted_at IS NULL"]
     params: list = []
-    if collection_id is not None:
+    if collection_id is not None and recursive:
+        ids = collections.descendant_ids(conn, collection_id)
+        where.append(
+            "i.id IN (SELECT item_id FROM collection_items WHERE collection_id IN ("
+            + ",".join("?" * len(ids)) + "))"
+        )
+        params += ids
+    elif collection_id is not None:
         sql += " JOIN collection_items ci ON ci.item_id=i.id"
         where.append("ci.collection_id=?")
         params.append(collection_id)

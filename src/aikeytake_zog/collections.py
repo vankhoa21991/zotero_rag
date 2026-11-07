@@ -110,23 +110,60 @@ def tree_flat(conn: sqlite3.Connection) -> list[dict]:
     return out
 
 
+def descendant_ids(conn: sqlite3.Connection, collection_id: int) -> list[int]:
+    """`collection_id` plus all nested children; one recursive CTE.
+
+    UNION (not UNION ALL) drops rows already seen, so a loop in bad parent
+    data terminates instead of recursing forever. Unknown id -> just [id].
+    """
+    rows = conn.execute(
+        "WITH RECURSIVE d(id) AS ("
+        " SELECT ? UNION SELECT c.id FROM collections c JOIN d ON c.parent_id=d.id)"
+        " SELECT id FROM d",
+        (collection_id,),
+    ).fetchall()
+    return [r["id"] for r in rows]
+
+
 def tree(conn: sqlite3.Connection) -> list[dict]:
-    """Roots of the collection tree: id, name, parent_id, count, children."""
+    """Roots of the collection tree.
+
+    Each node: id, name, parent_id, count (direct non-trashed items), total
+    (distinct non-trashed items in it and all its descendants), children.
+    Two queries for the whole tree; totals are aggregated in Python.
+    """
     rows = conn.execute("SELECT id, name, parent_id FROM collections ORDER BY name").fetchall()
     by_id = {
-        r["id"]: {"id": r["id"], "name": r["name"], "parent_id": r["parent_id"], "count": 0, "children": []}
+        r["id"]: {"id": r["id"], "name": r["name"], "parent_id": r["parent_id"],
+                  "count": 0, "total": 0, "children": []}
         for r in rows
     }
-    for cid in by_id:
-        by_id[cid]["count"] = conn.execute(
-            "SELECT COUNT(*) AS n FROM collection_items WHERE collection_id=?", (cid,)
-        ).fetchone()["n"]
+    direct: dict[int, set[int]] = {cid: set() for cid in by_id}
+    for r in conn.execute(
+        "SELECT ci.collection_id AS cid, ci.item_id AS iid FROM collection_items ci"
+        " JOIN items i ON i.id=ci.item_id WHERE i.deleted_at IS NULL"
+    ):
+        if r["cid"] in direct:
+            direct[r["cid"]].add(r["iid"])
     roots = []
     for c in by_id.values():
+        c["count"] = len(direct[c["id"]])
+        c["total"] = c["count"]  # fallback for nodes unreachable from a root (cycles)
         if c["parent_id"] is None or c["parent_id"] not in by_id:
             roots.append(c)
         else:
             by_id[c["parent_id"]]["children"].append(c)
+
+    def fill(node: dict) -> set[int]:
+        # Reachable from a root => a proper tree (one parent each), no cycle.
+        acc = set(direct[node["id"]])
+        for ch in node["children"]:
+            acc |= fill(ch)
+        node["total"] = len(acc)
+        return acc
+
+    for root in roots:
+        fill(root)
     return roots
 
 

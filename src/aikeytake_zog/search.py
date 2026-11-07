@@ -211,6 +211,7 @@ def search(
     type: str | None = None,
     limit: int = 50,
     offset: int = 0,
+    recursive: bool = False,
 ) -> list[dict]:
     """Search trashed-excluded items; returns id, title, type, snippet, score (higher better)."""
     q = (query or "").strip()
@@ -233,11 +234,18 @@ def search(
     )
     params: list = [escape_fts(q)]
     if collection_id is not None:
+        if recursive:
+            from aikeytake_zog import collections  # local: avoid import cycle
+
+            ids = collections.descendant_ids(conn, collection_id)
+        else:
+            ids = [collection_id]
         sql += (
             " AND EXISTS (SELECT 1 FROM collection_items ci"
-            " WHERE ci.item_id=i.id AND ci.collection_id=?)"
+            " WHERE ci.item_id=i.id AND ci.collection_id IN ("
+            + ",".join("?" * len(ids)) + "))"
         )
-        params.append(collection_id)
+        params += ids
     if tag is not None:
         sql += (
             " AND EXISTS (SELECT 1 FROM item_tags it"
