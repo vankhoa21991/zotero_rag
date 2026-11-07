@@ -276,3 +276,38 @@ def test_search_recursive_collection_filter(conn):
     conn.commit()
     assert search.search(conn, "quantum", collection_id=p) == []
     assert [r["id"] for r in search.search(conn, "quantum", collection_id=p, recursive=True)] == [a]
+
+
+def test_list_items_by_url_exact(conn):
+    a = items.create_item(conn, {"title": "A", "url": "https://a.com/x"}, actor="user")
+    items.create_item(conn, {"title": "B", "url": "https://a.com/xy"}, actor="user")
+    items.create_item(conn, {"title": "C"}, actor="user")
+    conn.commit()
+    assert [r["id"] for r in items.list_items(conn, url="https://a.com/x")] == [a]
+    assert items.list_items(conn, url="https://a.com/") == []
+
+
+def test_list_items_by_url_ignores_fragment_both_sides(conn):
+    x = items.create_item(conn, {"title": "X", "url": "https://a.com/x"}, actor="user")
+    y = items.create_item(conn, {"title": "Y", "url": "https://a.com/y#top"}, actor="user")
+    conn.commit()
+    assert [r["id"] for r in items.list_items(conn, url="https://a.com/x#frag")] == [x]
+    assert [r["id"] for r in items.list_items(conn, url="https://a.com/y")] == [y]
+
+
+def test_list_items_by_url_wildcards_and_empty_do_not_match_loosely(conn):
+    items.create_item(conn, {"title": "A", "url": "https://a.com/x_y"}, actor="user")
+    items.create_item(conn, {"title": "B", "url": "https://a.com/xzy"}, actor="user")
+    items.create_item(conn, {"title": "C"}, actor="user")
+    conn.commit()
+    assert [r["title"] for r in items.list_items(conn, url="https://a.com/x_y")] == ["A"]
+    assert items.list_items(conn, url="https://a.com/%") == []
+    assert items.list_items(conn, url="") == []
+
+
+def test_list_items_by_url_skips_trashed(conn):
+    iid = items.create_item(conn, {"title": "A", "url": "https://a.com/x"}, actor="user")
+    conn.commit()
+    items.trash_item(conn, iid, actor="user")
+    conn.commit()
+    assert items.list_items(conn, url="https://a.com/x") == []

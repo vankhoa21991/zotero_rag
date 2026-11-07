@@ -407,3 +407,18 @@ def test_api_items_recursive_param_defaults_false(env):
     assert [r["id"] for r in q] == [iid]
     tree = c.get("/api/collections", headers=w).json()
     assert tree[0]["total"] == 1 and tree[0]["count"] == 0
+
+
+def test_api_items_url_filter_returns_match(env):
+    c, h = env["client"], _h(env["write"])
+    a = c.post("/api/items", json={"title": "A", "url": "https://a.com/x"}, headers=h).json()["id"]
+    c.post("/api/items", json={"title": "B", "url": "https://a.com/y"}, headers=h)
+    r = c.get("/api/items", params={"url": "https://a.com/x#frag"}, headers=h)
+    assert r.status_code == 200
+    assert [i["id"] for i in r.json()] == [a]
+
+
+def test_api_items_url_and_q_is_400(env):
+    c, h = env["client"], _h(env["write"])
+    r = c.get("/api/items", params={"url": "https://a.com/x", "q": "foo"}, headers=h)
+    assert r.status_code == 400

@@ -262,8 +262,12 @@ def list_items(
     limit: int = 50,
     offset: int = 0,
     recursive: bool = False,
+    url: str | None = None,
 ) -> list[dict]:
     """Summary rows ordered by modified desc; hidden items excluded unless trashed=True.
+
+    `url` matches items whose url equals it, ignoring a #fragment on either side
+    (exact otherwise; an empty url matches nothing).
 
     With `recursive`, a collection filter also covers all its sub-collections
     (each item still appears once).
@@ -292,6 +296,12 @@ def list_items(
     if type is not None:
         where.append("i.type=?")
         params.append(type)
+    if url is not None:
+        if not url:
+            return []
+        bare = url.split("#", 1)[0]
+        where.append("(i.url = ? OR i.url = ? OR substr(i.url, 1, instr(i.url || '#', '#') - 1) = ?)")
+        params += [url, bare, bare]
     sql += " WHERE " + " AND ".join(where) + " ORDER BY i.modified DESC, i.id DESC LIMIT ? OFFSET ?"
     params += [limit, offset]
     out = []

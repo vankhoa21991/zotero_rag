@@ -210,10 +210,13 @@ def build_router() -> APIRouter:
         type: str | None = None,
         trashed: bool = False,
         recursive: bool = False,
+        url: str | None = None,
         limit: int = Query(50, ge=1, le=200),
         offset: int = Query(0, ge=0),
         conn=Depends(get_conn),
     ):
+        if q and url is not None:
+            raise HTTPException(status_code=400, detail="url and q cannot be combined")
         if q:
             return search.search(
                 conn, q, collection_id=collection, tag=tag, type=type, limit=limit, offset=offset,
@@ -228,6 +231,7 @@ def build_router() -> APIRouter:
             limit=limit,
             offset=offset,
             recursive=recursive,
+            url=url,
         )
 
     @r.post("/items", status_code=201)
