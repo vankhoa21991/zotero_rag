@@ -238,6 +238,25 @@ def test_library_sidebar_nests_children(client):
 
 def test_collection_actions_always_visible_on_touch(client):
     css = client.get("/static/app.css").text
-    assert "(hover: none)" in css
-    rule = css.split("(hover: none)")[1].split("}")[0]
-    assert "coll-more" in rule or "coll-actions" in css.split("(hover: none)")[1][:300]
+
+    def media_blocks(text):
+        pos = 0
+        while (start := text.find("@media", pos)) != -1:
+            open_i = text.index("{", start)
+            depth, j = 1, open_i + 1
+            while depth:
+                depth += {"{": 1, "}": -1}.get(text[j], 0)
+                j += 1
+            yield text[start:open_i], text[open_i + 1:j - 1]
+            pos = j
+
+    blocks = [b for q, b in media_blocks(css) if "hover: none" in q]
+    assert blocks, "no @media (hover: none) block"
+    body = " ".join(blocks)
+    rules = [r for r in body.split("}") if ".coll-actions button" in r.split("{")[0].split(",")[0]
+             and "danger" not in r.split("{")[0]]
+    assert rules, ".coll-actions button rule missing in hover:none block"
+    decl = rules[0]
+    assert "position: static" in decl
+    assert "clip-path: none" in decl
+    assert "overflow: visible" in decl
