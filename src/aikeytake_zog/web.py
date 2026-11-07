@@ -64,10 +64,20 @@ def creator_rows(raw) -> list[dict]:
     Tolerates legacy/garbage values: a non-list yields no rows, non-dict
     entries are skipped. `extra_json` carries every key the row does not show
     (so the page can write it back untouched); `type` is shown separately.
+    A legacy string entry becomes a name-only row; any other non-dict entry is
+    a read-only "raw" row whose JSON is re-emitted unchanged on save.
+    Note: the page saves the whole creators list, so a save can overwrite a
+    newer edit made elsewhere (accepted: single user, History can revert it).
     """
     rows = []
     for c in raw if isinstance(raw, list) else []:
+        if isinstance(c, str):
+            rows.append({"kind": "name", "first": "", "last": "", "name": c, "type": "",
+                         "extra_json": "{}"})
+            continue
         if not isinstance(c, dict):
+            rows.append({"kind": "raw", "first": "", "last": "", "name": "", "type": "",
+                         "extra_json": "{}", "raw_json": json.dumps(c, ensure_ascii=False)})
             continue
         first = c.get("first") if isinstance(c.get("first"), str) else ""
         last = c.get("last") if isinstance(c.get("last"), str) else ""

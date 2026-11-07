@@ -501,7 +501,7 @@ def test_creator_rows_roundtrip_shapes(creators):
     assert (r["kind"] == "name") == (set(creators[0]) - {"type"} == {"name"})
 
 
-@pytest.mark.parametrize("garbage", [None, "oops", 5, {"a": 1}, [1, "x", None, ["y"]]])
+@pytest.mark.parametrize("garbage", [None, "oops", 5, {"a": 1}])
 def test_creator_rows_garbage_is_empty(garbage):
     from aikeytake_zog.web import creator_rows
     assert creator_rows(garbage) == []
@@ -534,3 +534,26 @@ def test_item_page_has_status_line_and_two_column_layout(client):
     html = client.get(f"/items/{iid}").text
     assert 'id="save-status"' in html and 'aria-live="polite"' in html
     assert "item-layout" in html and "item-side" in html
+
+
+def test_creator_rows_keep_legacy_and_nameless_entries():
+    from aikeytake_zog.web import creator_rows
+    rows = creator_rows(["Smith, J.", 42, {"orcid": "0000-0001"}, {"type": "author"}, ["x"]])
+    assert len(rows) == 5
+    assert (rows[0]["kind"], rows[0]["name"]) == ("name", "Smith, J.")
+    assert (rows[1]["kind"], rows[1]["raw_json"]) == ("raw", "42")
+    assert rows[2]["extra_json"] == '{"orcid": "0000-0001"}'
+    assert rows[3]["type"] == "author" and rows[3]["extra_json"] == "{}"
+    assert (rows[4]["kind"], rows[4]["raw_json"]) == ("raw", '["x"]')
+
+
+def test_item_page_renders_legacy_creators_rows(client):
+    iid = client.post("/api/items", json={"title": "L"}).json()["id"]
+    conn = zog_db.connect(client.settings.db_path)
+    conn.execute("UPDATE items SET creators=? WHERE id=?", ('["Smith, J.", 42, {"orcid": "o1"}]', iid))
+    conn.commit(); conn.close()
+    _login(client)
+    html = client.get(f"/items/{iid}").text
+    assert 'value="Smith, J."' in html
+    assert 'data-kind="raw"' in html and 'data-raw="42"' in html
+    assert "&#34;orcid&#34;" in html  # nameless dict kept in data-extra

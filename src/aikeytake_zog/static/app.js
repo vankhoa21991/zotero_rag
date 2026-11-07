@@ -159,6 +159,10 @@ if (itemIdEl) {
     const serialize = () => {
       const out = [];
       creatorsEl.querySelectorAll(".creator-row").forEach((row) => {
+        if (row.dataset.kind === "raw") { // unknown legacy entry: re-emit unchanged
+          try { out.push(JSON.parse(row.dataset.raw)); } catch { /* unparseable: skip */ }
+          return;
+        }
         let obj;
         try { obj = JSON.parse(row.dataset.extra || "{}"); } catch { obj = {}; }
         const type = row.querySelector(".cr-type").value;
@@ -171,7 +175,8 @@ if (itemIdEl) {
           if (val(".cr-last")) obj.last = val(".cr-last");
         }
         const named = ["name", "first", "last"].some((k) => typeof obj[k] === "string" && obj[k].trim());
-        if (named) out.push(obj); // blank rows are dropped
+        // drop only truly blank rows; rows carrying extra keys are kept intact
+        if (named || Object.keys(obj).some((k) => k !== "type")) out.push(obj);
       });
       return out;
     };

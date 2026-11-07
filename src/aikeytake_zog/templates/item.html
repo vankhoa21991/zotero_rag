@@ -1,6 +1,12 @@
 {% extends "base.html" %}
 {% block title %}{{ item.title if item else 'missing' }} — aikeytake-zog{% endblock %}
 {% macro creator_row(row, types) %}
+{% if row.kind == "raw" %}
+<div class="creator-row" data-kind="raw" data-raw="{{ row.raw_json }}">
+  <code class="cr-raw">{{ row.raw_json }}</code>
+  <button type="button" class="icon-btn cr-del" aria-label="Remove creator">×</button>
+</div>
+{% else %}
 <div class="creator-row" data-kind="{{ row.kind }}" data-extra="{{ row.extra_json }}">
   <select class="cr-type" aria-label="Creator type">
     <option value="">(type)</option>
@@ -15,6 +21,7 @@
   {% endif %}
   <button type="button" class="icon-btn cr-del" aria-label="Remove creator">×</button>
 </div>
+{% endif %}
 {% endmacro %}
 {% block body %}
 {% if item %}

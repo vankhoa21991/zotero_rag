@@ -212,3 +212,6 @@ form[action="/login"] button { margin-top: 0.75rem; }
   .creator-row .cr-del { grid-row: 1; grid-column: 3; }
   .card { padding: 0.25rem 0.75rem 0.75rem; }
 }
+.creator-row[data-kind="raw"] { grid-template-columns: minmax(0, 1fr) auto; }
+.creator-row .cr-raw { overflow-wrap: anywhere; }
+.creator-row[data-kind="raw"] .cr-del { grid-column: 2; }
