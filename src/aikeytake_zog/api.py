@@ -211,6 +211,8 @@ def build_router() -> APIRouter:
         trashed: bool = False,
         recursive: bool = False,
         url: str | None = None,
+        sort: str | None = Query(None, pattern="^(added|modified|title)$"),
+        order: str | None = Query(None, pattern="^(asc|desc)$"),
         limit: int = Query(50, ge=1, le=200),
         offset: int = Query(0, ge=0),
         conn=Depends(get_conn),
@@ -220,7 +222,7 @@ def build_router() -> APIRouter:
         if q:
             return search.search(
                 conn, q, collection_id=collection, tag=tag, type=type, limit=limit, offset=offset,
-                recursive=recursive,
+                recursive=recursive, sort=sort, order=order,
             )
         return items.list_items(
             conn,
@@ -232,6 +234,8 @@ def build_router() -> APIRouter:
             offset=offset,
             recursive=recursive,
             url=url,
+            sort=sort,
+            order=order,
         )
 
     @r.post("/items", status_code=201)

@@ -248,12 +248,18 @@ def web_routes(app) -> None:
         tag: str | None = None,
         collection: int | None = None,
         recursive: str | None = None,
+        sort: str | None = None,
+        order: str | None = None,
         page: int = 1,
         conn=Depends(get_conn),
     ):
         gate = _gate(request, conn)
         if gate is not None:
             return gate
+        if sort not in items.SORTS:
+            sort = None
+        if order not in ("asc", "desc"):
+            order = None
         flat = collections.tree_flat(conn)
         page = max(1, page)
         limit, offset = 100, (page - 1) * 100
@@ -263,12 +269,12 @@ def web_routes(app) -> None:
         if q:
             rows = search.search(
                 conn, q, collection_id=collection, tag=tag, type=type,
-                limit=limit, offset=offset, recursive=rec,
+                limit=limit, offset=offset, recursive=rec, sort=sort, order=order,
             )
         else:
             rows = items.list_items(
                 conn, collection_id=collection, tag=tag, type=type,
-                limit=limit, offset=offset, recursive=rec,
+                limit=limit, offset=offset, recursive=rec, sort=sort, order=order,
             )
         return templates.TemplateResponse(
             request,
@@ -280,6 +286,8 @@ def web_routes(app) -> None:
                 "tag": tag,
                 "collection": collection,
                 "recursive": rec,
+                "sort": sort,
+                "order": order,
                 "page": page,
                 "has_next": len(rows) == limit,
                 "collections": collections.tree(conn),

@@ -252,6 +252,27 @@ def restore_item(conn: sqlite3.Connection, item_id: int, actor: str, batch_id: i
     return _set_deleted(conn, item_id, actor, batch_id, deleted=False)
 
 
+SORTS = {
+    "added": "i.created",
+    "modified": "i.modified",
+    "title": "i.title COLLATE NOCASE",
+}
+
+
+def order_by(sort: str | None, order: str | None) -> str:
+    """ORDER BY body for a sort key (added|modified|title) and direction (asc|desc).
+
+    Unknown values raise ValueError; ties break on id in the same direction.
+    """
+    key = sort or "modified"
+    if key not in SORTS:
+        raise ValueError(f"unknown sort: {key!r} (use added, modified or title)")
+    direction = (order or "desc").lower()
+    if direction not in ("asc", "desc"):
+        raise ValueError(f"unknown order: {order!r} (use asc or desc)")
+    return f"{SORTS[key]} {direction}, i.id {direction}"
+
+
 def list_items(
     conn: sqlite3.Connection,
     *,
@@ -263,8 +284,10 @@ def list_items(
     offset: int = 0,
     recursive: bool = False,
     url: str | None = None,
+    sort: str | None = None,
+    order: str | None = None,
 ) -> list[dict]:
-    """Summary rows ordered by modified desc; hidden items excluded unless trashed=True.
+    """Summary rows ordered by `sort`/`order` (default modified desc); hidden items excluded unless trashed=True.
 
     `url` matches items whose url equals it, ignoring a #fragment on either side
     (exact otherwise; an empty url matches nothing).
@@ -302,7 +325,7 @@ def list_items(
         bare = url.split("#", 1)[0]
         where.append("(i.url = ? OR i.url = ? OR substr(i.url, 1, instr(i.url || '#', '#') - 1) = ?)")
         params += [url, bare, bare]
-    sql += " WHERE " + " AND ".join(where) + " ORDER BY i.modified DESC, i.id DESC LIMIT ? OFFSET ?"
+    sql += " WHERE " + " AND ".join(where) + " ORDER BY " + order_by(sort, order) + " LIMIT ? OFFSET ?"
     params += [limit, offset]
     out = []
     for r in conn.execute(sql, params).fetchall():

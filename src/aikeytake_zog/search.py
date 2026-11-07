@@ -212,13 +212,15 @@ def search(
     limit: int = 50,
     offset: int = 0,
     recursive: bool = False,
+    sort: str | None = None,
+    order: str | None = None,
 ) -> list[dict]:
-    """Search trashed-excluded items; returns id, title, type, snippet, score (higher better)."""
+    """Search trashed-excluded items (relevance order unless `sort` is given); returns id, title, type, snippet, score (higher better)."""
     q = (query or "").strip()
     if not q:
         return []
     sql = (
-        "SELECT i.id, i.title, i.type, i.url, i.date, i.creators,"
+        "SELECT i.id, i.title, i.type, i.url, i.date, i.creators, i.created, i.modified,"
         " COALESCE("
         "  NULLIF(snippet(item_fts, 6, '', '', '…', 10), ''), "
         "  NULLIF(snippet(item_fts, 4, '', '', '…', 10), ''), "
@@ -256,6 +258,11 @@ def search(
     if type is not None:
         sql += " AND i.type=?"
         params.append(type)
-    sql += " ORDER BY score DESC, i.id ASC LIMIT ? OFFSET ?"
+    if sort:
+        from aikeytake_zog import items as _items  # local: avoid import cycle
+
+        sql += " ORDER BY " + _items.order_by(sort, order) + " LIMIT ? OFFSET ?"
+    else:
+        sql += " ORDER BY score DESC, i.id ASC LIMIT ? OFFSET ?"
     params += [limit, offset]
     return add_row_summary(conn, [dict(r) for r in conn.execute(sql, params).fetchall()])

@@ -23,6 +23,7 @@ import dataclasses
 import html
 import io
 import json
+import re
 import sqlite3
 from dataclasses import dataclass, field as dfield
 from pathlib import Path
@@ -194,12 +195,21 @@ def _attachment_ext(kind: str, filename: str | None) -> str | None:
     return (Path(filename).suffix.lstrip(".") if filename and Path(filename).suffix else "bin")
 
 
+def _iso_added(value) -> str | None:
+    """Zotero's dateAdded ("YYYY-MM-DD HH:MM:SS", UTC) as our ISO form, or None if unusable."""
+    if not isinstance(value, str):
+        return None
+    m = re.fullmatch(r"(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})(?:Z|\+00:00)?", value.strip())
+    return f"{m.group(1)}T{m.group(2)}+00:00" if m else None
+
+
 def import_item(conn: sqlite3.Connection, payload: dict, actor: str = IMPORT_ACTOR) -> dict:
     """Upsert one item by zotero_key; see module docstring for the rules."""
     key = payload["zotero_key"]
     row = conn.execute("SELECT id FROM items WHERE zotero_key=?", (key,)).fetchone()
     created = row is None
     skipped: list[str] = []
+    added = _iso_added(payload.get("date_added"))
 
     if created:
         data = {f: payload.get(f) for f in _CORE}
@@ -207,6 +217,8 @@ def import_item(conn: sqlite3.Connection, payload: dict, actor: str = IMPORT_ACT
         batch_id = changelog.begin_batch(conn, actor, label=f"import item {key}")
         iid = items.create_item(conn, data, actor, batch_id=batch_id)
         conn.execute("UPDATE items SET zotero_key=? WHERE id=?", (key, iid))
+        if added:
+            conn.execute("UPDATE items SET created=? WHERE id=?", (added, iid))
         field_changes: list[tuple[str, object]] = []
     else:
         iid = row["id"]
@@ -257,11 +269,24 @@ def import_item(conn: sqlite3.Connection, payload: dict, actor: str = IMPORT_ACT
     att_new = sum(1 for *_, p in att_plans if p[0] == "new")
     att_upd = sum(1 for *_, p in att_plans if p[0] == "update")
 
+    # "Date added" mirrors Zotero's; not user-editable, so no protection rule applies.
+    backfill_added = False
+    if not created and added:
+        cur = conn.execute("SELECT created FROM items WHERE id=?", (iid,)).fetchone()
+        backfill_added = cur is not None and cur["created"] != added
+
     if not created:
         anything = (
             field_changes or to_add_tags or to_add_cols
             or notes_added or anns_added or att_new or att_upd
         )
+        if not anything and backfill_added:
+            # Only the (unaudited) date added differs: set it without an empty batch.
+            conn.execute("UPDATE items SET created=? WHERE id=?", (added, iid))
+            return {
+                "id": iid, "created": False, "updated": True,
+                "skipped_fields": skipped, "notes_added": 0, "annotations_added": 0,
+            }
         if not anything:
             return {
                 "id": iid, "created": False, "updated": False,
@@ -269,6 +294,8 @@ def import_item(conn: sqlite3.Connection, payload: dict, actor: str = IMPORT_ACT
             }
         batch_id = changelog.begin_batch(conn, actor, label=f"import item {key}")
 
+    if backfill_added:
+        conn.execute("UPDATE items SET created=? WHERE id=?", (added, iid))
     if field_changes:
         items.update_item(conn, iid, dict(field_changes), actor, batch_id=batch_id)
     if to_add_tags:
@@ -512,6 +539,7 @@ def _payload_for(reader: ZoteroReader, z) -> dict:
     creators = [c for c in (z.creators or []) if c.get("name") or c.get("first") or c.get("last")]
     return {
         "zotero_key": z.key,
+        "date_added": z.added,
         "type": z.type,
         "title": z.title,
         "creators": creators,

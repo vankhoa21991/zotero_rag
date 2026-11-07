@@ -460,3 +460,42 @@ def test_extraction_uses_a_single_worker_and_connections_wait_for_locks(env):
         ).fetchone()[0]  # whatever is not extracted has a recorded error
     finally:
         conn.close()
+
+
+def _created_by_key(env):
+    conn = _zog_conn(env)
+    try:
+        return {r["zotero_key"]: r["created"] for r in conn.execute("SELECT zotero_key, created FROM items")}
+    finally:
+        conn.close()
+
+
+def test_import_keeps_zotero_date_added(env):
+    _run_import(env)
+    created = _created_by_key(env)
+    assert created[KEYS["items"]["paper"]] == "2024-01-01T00:00:00+00:00"
+
+
+def test_reimport_backfills_date_added_without_empty_batches(env):
+    _run_import(env)
+    conn = _zog_conn(env)
+    conn.execute("UPDATE items SET created='2026-11-01T21:53:52+00:00'")  # as imported before this fix
+    conn.commit()
+    batches_before = conn.execute("SELECT COUNT(*) FROM batches").fetchone()[0]
+    conn.close()
+    rep = _run_import(env)
+    assert rep.failures == []
+    assert rep.items_updated == 8
+    assert set(_created_by_key(env).values()) == {"2024-01-01T00:00:00+00:00"}
+    conn = _zog_conn(env)
+    try:
+        assert conn.execute("SELECT COUNT(*) FROM batches").fetchone()[0] == batches_before
+    finally:
+        conn.close()
+    assert _run_import(env).items_unchanged == 8  # and it is stable afterwards
+
+
+def test_import_ignores_unusable_date_added(env):
+    assert importer._iso_added(None) is None
+    assert importer._iso_added("not a date") is None
+    assert importer._iso_added("2023-05-06 07:08:09") == "2023-05-06T07:08:09+00:00"

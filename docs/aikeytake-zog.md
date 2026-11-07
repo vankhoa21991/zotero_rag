@@ -97,6 +97,7 @@ enforced server-side from the change log:
   (deduped by sha256 — files already on the server are not re-uploaded).
 - **Nothing is ever deleted.** If you delete an item or tag in Zotero, the aikeytake-zog copy
   stays. Same for collection removals.
+- **Date added follows Zotero.** An item's "date added" (the library column and sort) is Zotero's original `dateAdded`. Items imported before this was supported carry the import time until you re-run the import, which corrects them (no change-log batch is created for that).
 - **Unchanged items are a no-op** — no change-log batch is created for them.
 
 So the safe loop is: edit freely in the web UI (or in Zotero), re-run the import when

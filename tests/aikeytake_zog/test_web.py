@@ -761,3 +761,84 @@ def test_library_exposes_viewed_collection_and_recursive_state(client):
     off = client.get(f"/?collection={c}&recursive=0").text
     assert f'data-viewed-collection="{c}"' in off and 'data-recursive="0"' in off
     assert 'data-viewed-collection=""' in client.get("/").text
+
+
+
+def _make_items(client, titles):
+    ids = []
+    for t in titles:
+        r = client.post("/api/items", json={"type": "webpage", "title": t})
+        assert r.status_code == 201, r.text
+        ids.append(r.json()["id"])
+    return ids
+
+
+def _backdate(client, item_id, created):
+    conn = zog_db.connect(client.settings.db_path)
+    conn.execute("UPDATE items SET created=? WHERE id=?", (created, item_id))
+    conn.commit()
+    conn.close()
+
+
+def test_api_sorts_by_date_added_both_directions(client):
+    a, b, c = _make_items(client, ["Alpha", "Beta", "Gamma"])
+    _backdate(client, a, "2024-03-01T00:00:00+00:00")
+    _backdate(client, b, "2024-01-01T00:00:00+00:00")
+    _backdate(client, c, "2024-02-01T00:00:00+00:00")
+    asc = [r["id"] for r in client.get("/api/items?sort=added&order=asc").json()]
+    desc = [r["id"] for r in client.get("/api/items?sort=added&order=desc").json()]
+    assert asc == [b, c, a]
+    assert desc == [a, c, b]
+    assert [r["id"] for r in client.get("/api/items?sort=title&order=asc").json()] == [a, b, c]
+
+
+def test_api_rejects_unknown_sort(client):
+    assert client.get("/api/items?sort=bogus").status_code == 422
+    assert client.get("/api/items?sort=added&order=sideways").status_code == 422
+
+
+def test_search_can_be_sorted_by_date_added(client):
+    a, b = _make_items(client, ["shared word one", "shared word two"])
+    _backdate(client, a, "2024-01-01T00:00:00+00:00")
+    _backdate(client, b, "2024-06-01T00:00:00+00:00")
+    got = [r["id"] for r in client.get("/api/items?q=shared&sort=added&order=desc").json()]
+    assert got == [b, a]
+    got = [r["id"] for r in client.get("/api/items?q=shared&sort=added&order=asc").json()]
+    assert got == [a, b]
+
+
+def _web_login(client):
+    c = TestClient(client.app)
+    r = c.post("/login", data={"password": "test-pass"}, follow_redirects=False)
+    assert r.status_code in (302, 303)
+    return c
+
+
+def test_library_rows_show_date_added_and_sort_links(client):
+    (a,) = _make_items(client, ["Dated item"])
+    _backdate(client, a, "2024-03-05T10:00:00+00:00")
+    html = _web_login(client).get("/").text
+    assert 'class="row-added' in html and ">2024-03-05<" in html
+    assert "sort=added&order=desc" in html or "sort=added&order=asc" in html
+    assert 'aria-label="Sort items"' in html
+
+
+def test_library_page_orders_by_date_added_and_marks_active_sort(client):
+    a, b = _make_items(client, ["Older", "Newer"])
+    _backdate(client, a, "2024-01-01T00:00:00+00:00")
+    _backdate(client, b, "2024-09-01T00:00:00+00:00")
+    web = _web_login(client)
+    html = web.get("/?sort=added&order=asc").text
+    assert html.index("Older") < html.index("Newer")
+    assert 'aria-sort="ascending"' in html
+    html = web.get("/?sort=added&order=desc").text
+    assert html.index("Newer") < html.index("Older")
+    assert 'aria-sort="descending"' in html
+    # junk values fall back to the default instead of erroring
+    assert web.get("/?sort=bogus&order=x").status_code == 200
+
+
+def test_pager_keeps_sort(client):
+    _make_items(client, [f"Item {i}" for i in range(101)])
+    html = _web_login(client).get("/?sort=added&order=asc").text
+    assert "sort=added&order=asc&page=2" in html
