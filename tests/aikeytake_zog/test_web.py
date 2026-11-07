@@ -205,3 +205,12 @@ def test_html_pages_have_csp_header(client):
         r = client.get(path)
         assert r.status_code == 200
         assert "default-src 'self'" in r.headers["content-security-policy"]
+
+
+def test_library_page_hides_bulk_bar_until_selection(client):
+    client.post("/login", data={"password": "test-pass"}, follow_redirects=False)
+    page = client.get("/")
+    assert page.status_code == 200
+    assert 'id="bulk" hidden' in page.text
+    css = client.get("/static/app.css")
+    assert "[hidden]" in css.text

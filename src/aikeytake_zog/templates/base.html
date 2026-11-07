@@ -2,6 +2,8 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
   <title>{% block title %}aikeytake-zog{% endblock %}</title>
   <link rel="stylesheet" href="/static/app.css">
   <script src="/static/app.js" defer></script>
@@ -9,8 +11,9 @@
 <body>
   <nav>
     <a href="/" class="brand">aikeytake-zog</a>
-    <a href="/history">History</a>
-    <a href="/settings">Settings</a>
+    <a href="/" {% if request.url.path == "/" %}aria-current="page"{% endif %}>Library</a>
+    <a href="/history" {% if request.url.path.startswith("/history") %}aria-current="page"{% endif %}>History</a>
+    <a href="/settings" {% if request.url.path.startswith("/settings") %}aria-current="page"{% endif %}>Settings</a>
     <form method="post" action="/logout" class="inline"><button type="submit" class="linklike">Sign out</button></form>
   </nav>
   <main>
