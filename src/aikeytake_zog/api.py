@@ -476,15 +476,14 @@ def build_router() -> APIRouter:
             raise HTTPException(status_code=404, detail="missing", headers={"X-Missing": "true"})
         if inline and row["kind"] == "pdf":
             # filename is imported data: FileResponse RFC 5987-encodes it.
+            # No CSP sandbox here: browser PDF viewers sandbox PDF content
+            # themselves, and a `sandbox` header makes them refuse to render.
             return FileResponse(
                 path,
                 filename=row["filename"] or "document.pdf",
                 media_type="application/pdf",
                 content_disposition_type="inline",
-                headers={
-                    "X-Content-Type-Options": "nosniff",
-                    "Content-Security-Policy": "sandbox",
-                },
+                headers={"X-Content-Type-Options": "nosniff"},
             )
         return FileResponse(path, filename=row["filename"], media_type="application/octet-stream")
 

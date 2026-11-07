@@ -356,7 +356,7 @@ def test_pdf_inline_flag_sets_inline_headers(env):
     assert r.headers["content-disposition"].startswith("inline")
     assert 'filename="a.pdf"' in r.headers["content-disposition"]
     assert r.headers["x-content-type-options"] == "nosniff"
-    assert r.headers["content-security-policy"] == "sandbox"
+    assert "content-security-policy" not in r.headers
     # default still downloads
     d = c.get(f"/api/files/{att['id']}", headers=w)
     assert d.headers["content-type"].startswith("application/octet-stream")

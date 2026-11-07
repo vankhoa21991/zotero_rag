@@ -378,3 +378,16 @@ def test_search_mode_row_has_open_url_icon(client):
     client.post("/api/items", json={"title": "quokka", "url": "https://example.com/q"})
     _login(client)
     assert 'href="https://example.com/q"' in client.get("/?q=quokka").text
+
+
+@pytest.mark.parametrize("url,linked", [("javascript:alert(1)", False), ("https://example.com/x", True)])
+def test_link_attachment_uses_safe_url(client, url, linked):
+    iid = client.post("/api/items", json={"title": "T"}).json()["id"]
+    conn = zog_db.connect(client.settings.db_path)
+    conn.execute("INSERT INTO attachments(item_id, kind, filename, url) VALUES(?,?,?,?)", (iid, "link", "l", url))
+    conn.commit()
+    conn.close()
+    _login(client)
+    html = client.get(f"/items/{iid}").text
+    assert 'href="javascript:' not in html
+    assert (f'href="{url}" target="_blank" rel="noopener noreferrer"' in html) == linked

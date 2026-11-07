@@ -69,7 +69,7 @@
   {% for att in item.attachments %}
   <li>
     <strong>{{ att.filename or att.kind }}</strong>
-    {% if att.kind == "link" and att.url %}<a href="{{ att.url }}" rel="noopener">open link ↗</a>{% endif %}
+    {% if att.kind == "link" and att.url %}{% set lu = att.url | safe_url %}{% if lu %}<a href="{{ lu }}" target="_blank" rel="noopener noreferrer">open link ↗</a>{% else %}<span class="muted">{{ att.url }}</span>{% endif %}{% endif %}
     {% if att.kind == "pdf" and att.sha256 and not att.missing %}<a class="btn open-pdf" href="/api/files/{{ att.id }}?inline=1" target="_blank" rel="noopener noreferrer">Open PDF{% if pdfs | length > 1 %}: {{ att.filename or att.id }}{% endif %}</a>{% endif %}
     {% if att.sha256 and not att.missing %}<a href="/api/files/{{ att.id }}">download</a>{% endif %}
     {% if att.missing %}<span class="missing">file missing</span>{% endif %}
