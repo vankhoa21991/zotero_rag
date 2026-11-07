@@ -557,3 +557,12 @@ def test_item_page_renders_legacy_creators_rows(client):
     assert 'value="Smith, J."' in html
     assert 'data-kind="raw"' in html and 'data-raw="42"' in html
     assert "&#34;orcid&#34;" in html  # nameless dict kept in data-extra
+
+
+def test_library_row_shows_five_tags_and_plus_n(client):
+    iid = client.post("/api/items", json={"title": "ManyTags"}).json()["id"]
+    client.post(f"/api/items/{iid}/tags", json={"names": list("abcdefg")})
+    _login(client)
+    html = client.get("/").text
+    assert "+2</span>" in html
+    assert '<span class="chip">e</span>' in html and '<span class="chip">f</span>' not in html

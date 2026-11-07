@@ -190,7 +190,9 @@ the live data dir:
 
 ```bash
 D=$(mktemp -d)
-cp ~/.local/share/aikeytake-zog/aikeytake-zog.db* "$D"/   # copy the database (db file name as in your data dir)
+# copy the database with SQLite's online backup (a plain cp can miss WAL contents).
+# An old data dir may still name the file shelf.db (legacy) instead of aikeytake-zog.db.
+sqlite3 ~/.local/share/aikeytake-zog/aikeytake-zog.db ".backup $D/aikeytake-zog.db"
 ln -s ~/.local/share/aikeytake-zog/files "$D/files"
 AIKEYTAKE_ZOG_DATA_DIR="$D" aikeytake-zog set-password           # throwaway password
 AIKEYTAKE_ZOG_DATA_DIR="$D" aikeytake-zog serve --port 8399 &

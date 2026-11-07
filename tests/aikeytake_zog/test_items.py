@@ -174,6 +174,19 @@ def _count_statements(conn, fn):
     return len(stmts)
 
 
+def test_has_snapshot_requires_stored_file(conn):
+    iid = items.create_item(conn, {"title": "NoFile"}, actor="user")
+    conn.execute("INSERT INTO attachments(item_id, kind) VALUES(?, 'snapshot')", (iid,))
+    conn.commit()
+    assert items.list_items(conn)[0]["has_snapshot"] is False
+    conn.execute("UPDATE attachments SET sha256='abc' WHERE item_id=?", (iid,))
+    conn.commit()
+    assert items.list_items(conn)[0]["has_snapshot"] is True
+    conn.execute("UPDATE attachments SET missing=1 WHERE item_id=?", (iid,))
+    conn.commit()
+    assert items.list_items(conn)[0]["has_snapshot"] is False
+
+
 def test_list_items_row_summary(conn):
     iid = items.create_item(conn, {
         "title": "T", "date": "Published 2021-05-03", "url": "https://www.example.com/a",
@@ -182,12 +195,12 @@ def test_list_items_row_summary(conn):
     for n in "fedcbaz":
         conn.execute("INSERT OR IGNORE INTO tags(name) VALUES(?)", (n,))
         conn.execute("INSERT INTO item_tags(item_id, tag_id) SELECT ?, id FROM tags WHERE name=?", (iid, n))
-    conn.execute("INSERT INTO attachments(item_id, kind) VALUES(?, 'snapshot')", (iid,))
+    conn.execute("INSERT INTO attachments(item_id, kind, sha256) VALUES(?, 'snapshot', 'abc')", (iid,))
     conn.commit()
     row = items.list_items(conn)[0]
     assert row["creators_short"] == "Chen & Wang"
     assert row["year"] == "2021" and row["domain"] == "example.com"
-    assert row["tags"] == ["a", "b", "c", "d", "e"]
+    assert row["tags"] == ["a", "b", "c", "d", "e", "f", "z"]  # full list, template slices
     assert row["has_snapshot"] is True and row["pdf_id"] is None
     # search rows carry the same keys
     srow = search.search(conn, "T")[0]

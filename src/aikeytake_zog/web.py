@@ -285,6 +285,7 @@ def web_routes(app) -> None:
             {
                 "item": item,
                 "creator_rows": creator_rows(item["creators"]),
+                "reserved_fields": sorted(items.RESERVED_FIELDS),
                 "creator_types": ["author", "editor", "contributor", "translator", "seriesEditor"],
                 "all_collections": collections.tree_flat(conn),
                 "types": [r["type"] for r in conn.execute("SELECT DISTINCT type FROM items ORDER BY type")],

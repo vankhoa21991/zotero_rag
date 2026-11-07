@@ -48,7 +48,7 @@
         <a class="row-title" href="/items/{{ it.id }}">{{ it.title or '(untitled)' }}</a>
         {% set parts = [it.creators_short, it.year, it.type, it.domain] | select | list %}
         {% if parts or it.has_snapshot %}<div class="row-meta muted">{{ parts | join(' · ') }}{% if it.has_snapshot %}{% if parts %} {% endif %}<span class="snap-badge" title="Has a saved web snapshot">🌐</span>{% endif %}</div>{% endif %}
-        {% if it.tags %}<div class="row-tags">{% for t in it.tags %}<span class="chip">{{ t }}</span>{% endfor %}</div>{% endif %}
+        {% if it.tags %}<div class="row-tags">{% for t in it.tags[:5] %}<span class="chip">{{ t }}</span>{% endfor %}{% if it.tags | length > 5 %}<span class="chip muted">+{{ it.tags | length - 5 }}</span>{% endif %}</div>{% endif %}
         {% if q and it.snippet %}<div class="row-snippet muted">{{ it.snippet | highlight(q) }}</div>{% endif %}
       </div>
       <span class="row-links">

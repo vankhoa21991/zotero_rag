@@ -101,13 +101,13 @@
   <button type="button" id="cr-add" class="linklike">+ add creator</button>
 
   <h2>Fields</h2>
-  <table id="fields">
+  <table id="fields" data-reserved="{{ reserved_fields | join(',') }}">
     <tr class="fields-head"><th>Name</th><th>Value</th><th></th></tr>
     {% for name, value in item.fields.items() %}
     <tr>
       <td><input class="fld-name" value="{{ name }}" data-old="{{ name }}" aria-label="Field name"></td>
       <td><input class="fld-value" value="{{ value }}" aria-label="Field value"></td>
-      <td><button class="mini danger fld-del" data-name="{{ name }}" aria-label="Delete field {{ name }}">del</button></td>
+      <td><button class="mini danger fld-del" aria-label="Delete field {{ name }}">del</button></td>
     </tr>
     {% endfor %}
   </table>

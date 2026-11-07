@@ -164,7 +164,7 @@ def _domain(url) -> str | None:
 
 
 def add_row_summary(conn: sqlite3.Connection, rows: list[dict]) -> list[dict]:
-    """Add pdf_id, creators_short, year, domain, tags (first 5), has_snapshot.
+    """Add pdf_id, creators_short, year, domain, tags (all, sorted), has_snapshot.
 
     Shared by list_items and search so both library modes render identical
     rows. Two grouped queries (attachments, tags) over the page's ids.
@@ -177,7 +177,7 @@ def add_row_summary(conn: sqlite3.Connection, rows: list[dict]) -> list[dict]:
         marks = ",".join("?" * len(ids))
         for r in conn.execute(
             "SELECT DISTINCT item_id FROM attachments"
-            f" WHERE kind='snapshot' AND missing=0 AND item_id IN ({marks})",
+            f" WHERE kind='snapshot' AND missing=0 AND sha256 IS NOT NULL AND sha256 != '' AND item_id IN ({marks})",
             ids,
         ):
             snaps.add(r["item_id"])
@@ -192,7 +192,7 @@ def add_row_summary(conn: sqlite3.Connection, rows: list[dict]) -> list[dict]:
         m = _YEAR_RE.search(r.get("date") or "")
         r["year"] = m.group(0) if m else None
         r["domain"] = _domain(r.get("url"))
-        r["tags"] = tagmap.get(r["id"], [])[:5]
+        r["tags"] = tagmap.get(r["id"], [])
         r["has_snapshot"] = r["id"] in snaps
         if isinstance(r.get("creators"), str):
             try:

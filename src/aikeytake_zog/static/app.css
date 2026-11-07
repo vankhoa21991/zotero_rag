@@ -110,8 +110,7 @@ aside { min-width: 0; }
   .coll-actions button.danger { border-color: var(--danger); }
 }
 
-.item-row { display: flex; gap: 0.5rem; align-items: baseline; padding: 0.45rem 0; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
-.item-row { align-items: flex-start; }
+.item-row { display: flex; gap: 0.5rem; align-items: flex-start; padding: 0.45rem 0; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
 .row-main { flex: 1 1 14rem; min-width: 0; overflow-wrap: anywhere; }
 .row-title { font-size: 1.05rem; font-weight: 600; }
 .row-meta, .row-snippet { margin-top: 0.1rem; }
@@ -137,13 +136,11 @@ iframe.snapshot { width: 100%; height: 28rem; border: 1px solid var(--border); b
 .badge { font-size: 0.75rem; color: var(--highlight-border); font-weight: 600; }
 .note-actions { margin-bottom: 0.3rem; display: flex; gap: 0.3rem; }
 .item-actions { display: flex; gap: 1rem; align-items: center; margin-top: 1.5rem; flex-wrap: wrap; }
-.chips .chip { margin: 0.1rem 0.3rem 0.1rem 0; }
-.coll-checks label { display: inline-block; margin: 0.1rem 0.6rem 0.1rem 0; }
 h1 .title-input { font-size: 1.5rem; font-weight: 700; line-height: 1.3; border: none; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; width: 100%; max-width: none; padding: 0; resize: none; overflow: hidden; display: block; }
 h1 .title-input:focus { border-bottom-color: var(--accent); outline: none; }
 
 /* tables */
-.table-wrap, main > table { display: block; overflow-x: auto; }
+main > table { display: block; overflow-x: auto; }
 table { border-collapse: collapse; width: 100%; background: var(--card); }
 th, td { text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--border); }
 td.summary { max-width: 26rem; color: var(--muted); font-size: 0.9rem; }

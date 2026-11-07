@@ -109,22 +109,36 @@ const itemIdEl = document.getElementById("item-id");
 if (itemIdEl) {
   const itemId = +itemIdEl.textContent;
 
-  // visible, aria-live save status instead of silent saves / alert()
+  // visible, aria-live save status instead of silent saves / alert().
+  // Rules: "Saving…" while any save is in flight (never auto-cleared); an error is
+  // sticky per kind of save until the next save of that kind succeeds; "Saved ✓"
+  // only when nothing is in flight and no error is pending.
   const statusEl = document.getElementById("save-status");
-  let statusTimer;
-  const setStatus = (msg, isErr) => {
+  let inflight = 0, statusTimer;
+  const errors = new Map(); // kind -> message
+  const renderStatus = (savedOk) => {
     if (!statusEl) return;
-    statusEl.textContent = msg;
-    statusEl.classList.toggle("error", !!isErr);
     clearTimeout(statusTimer);
-    if (!isErr) statusTimer = setTimeout(() => { statusEl.textContent = ""; }, 4000);
+    if (inflight > 0) { statusEl.textContent = "Saving…"; statusEl.classList.remove("error"); return; }
+    if (errors.size) { statusEl.textContent = `Error: ${[...errors.values()][0]}`; statusEl.classList.add("error"); return; }
+    statusEl.classList.remove("error");
+    statusEl.textContent = savedOk ? "Saved ✓" : "";
+    if (savedOk) statusTimer = setTimeout(() => { if (!inflight && !errors.size) statusEl.textContent = ""; }, 4000);
   };
-  const fail = (e) => setStatus(`Error: ${(e && e.message) || e}`, true);
-  // run a save, showing "Saving…" then "Saved ✓" or the error
-  const save = async (fn) => {
-    setStatus("Saving…");
-    try { const r = await fn(); setStatus("Saved ✓"); return r; }
-    catch (e) { fail(e); throw e; }
+  const setError = (kind, msg) => { errors.set(kind, msg); renderStatus(); };
+  const fail = (e) => setError("other", String((e && e.message) || e));
+  const chains = new Map(); // kind -> promise: saves of one kind run one at a time
+  // run a save of `kind`; resolves with fn()'s result, rejects after recording the error
+  const save = (kind, fn) => {
+    inflight++;
+    renderStatus();
+    const run = (chains.get(kind) || Promise.resolve()).catch(() => {}).then(async () => {
+      try { const r = await fn(); errors.delete(kind); errors.delete("fieldname"); return r; }
+      catch (e) { errors.set(kind, String((e && e.message) || e)); throw e; }
+      finally { inflight--; renderStatus(true); }
+    });
+    chains.set(kind, run);
+    return run;
   };
   const patch = (changes) =>
     api(`/api/items/${itemId}`, { method: "PATCH", body: JSON.stringify(changes) });
@@ -133,7 +147,7 @@ if (itemIdEl) {
   const bind = (id, field) => {
     const el = document.getElementById(id);
     if (!el) return;
-    el.addEventListener("change", () => { save(() => patch({ [field]: el.value })).catch(() => {}); });
+    el.addEventListener("change", () => { save(field, () => patch({ [field]: el.value })).catch(() => {}); });
   };
   bind("f-title", "title");
   bind("f-type", "type");
@@ -147,7 +161,7 @@ if (itemIdEl) {
   if (titleEl) {
     const grow = () => { titleEl.style.height = "auto"; titleEl.style.height = titleEl.scrollHeight + "px"; };
     titleEl.addEventListener("input", grow);
-    titleEl.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); titleEl.blur(); } });
+    titleEl.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); titleEl.blur(); } });
     grow();
     window.addEventListener("resize", grow);
   }
@@ -180,13 +194,17 @@ if (itemIdEl) {
       });
       return out;
     };
-    const saveCreators = () => { save(() => patch({ creators: serialize() })).catch(() => {}); };
-    creatorsEl.addEventListener("change", saveCreators);
+    // whole-list PATCH, serialised; serialize() runs when the save starts so it sees the latest rows
+    const saveCreators = () => save("creators", () => patch({ creators: serialize() }));
+    creatorsEl.addEventListener("change", () => saveCreators().catch(() => {}));
     creatorsEl.addEventListener("click", (e) => {
       const del = e.target.closest(".cr-del");
       if (!del) return;
-      del.closest(".creator-row").remove();
-      saveCreators();
+      const row = del.closest(".creator-row");
+      const ref = row.nextElementSibling;
+      row.remove();
+      // a failed save must not leave the page showing a state the server never accepted
+      saveCreators().catch(() => creatorsEl.insertBefore(row, ref && ref.parentNode === creatorsEl ? ref : null));
     });
     const crAdd = document.getElementById("cr-add");
     const tpl = document.getElementById("creator-tpl");
@@ -200,6 +218,15 @@ if (itemIdEl) {
 
   // custom fields (updated in place, no reload)
   const fieldsTable = document.getElementById("fields");
+  // a rejected field name is a client-side error: clear it as soon as the user edits a field again
+  fieldsTable.addEventListener("input", (e) => { if (e.target.classList.contains("fld-name") && errors.delete("fieldname")) renderStatus(); });
+  const reserved = new Set((fieldsTable.dataset.reserved || "").split(",").filter(Boolean));
+  // client-side guard: core/reserved names would be routed to item columns by the API
+  const badFieldName = (name, self) => {
+    if (reserved.has(name)) return `"${name}" is a built-in item field, not a custom field name`;
+    const dup = [...fieldsTable.querySelectorAll(".fld-name")].some((el) => el !== self && (el.dataset.old === name));
+    return dup ? `a field named "${name}" already exists` : "";
+  };
   const wireFieldRow = (tr) => {
     const nameEl = tr.querySelector(".fld-name");
     const valueEl = tr.querySelector(".fld-value");
@@ -208,20 +235,23 @@ if (itemIdEl) {
       const oldName = nameEl.dataset.old;
       const newName = nameEl.value.trim();
       if (newName === oldName) return;
+      const bad = newName && badFieldName(newName, nameEl);
+      if (bad) { setError("fieldname", bad); nameEl.value = oldName; return; }
       const changes = {};
       if (oldName) changes[oldName] = null; // remove under old name
       if (newName) changes[newName] = valueEl.value;
-      save(() => patch(changes)).then(() => { nameEl.dataset.old = newName; }).catch(() => {});
+      save("fields", () => patch(changes)).then(() => { nameEl.dataset.old = newName; }).catch(() => {});
     });
     valueEl.addEventListener("change", () => {
       const name = nameEl.value.trim();
       if (!name) return;
-      save(() => patch({ [name]: valueEl.value })).then(() => { nameEl.dataset.old = name; }).catch(() => {});
+      if (name !== nameEl.dataset.old && badFieldName(name, nameEl)) { setError("fieldname", badFieldName(name, nameEl)); return; }
+      save("fields", () => patch({ [name]: valueEl.value })).then(() => { nameEl.dataset.old = name; }).catch(() => {});
     });
     del.addEventListener("click", () => {
       const name = nameEl.dataset.old;
       if (!name) { tr.remove(); return; }
-      save(() => patch({ [name]: null })).then(() => tr.remove()).catch(() => {});
+      save("fields", () => patch({ [name]: null })).then(() => tr.remove()).catch(() => {});
     });
   };
   fieldsTable.querySelectorAll(".fld-name").forEach((el) => wireFieldRow(el.closest("tr")));
@@ -259,7 +289,7 @@ if (itemIdEl) {
     tagChips.addEventListener("click", (e) => {
       const b = e.target.closest(".chip-del");
       if (!b) return;
-      save(() => api(`/api/items/${itemId}/tags/${encodeURIComponent(b.dataset.tag)}`, { method: "DELETE" }))
+      save("tags", () => api(`/api/items/${itemId}/tags/${encodeURIComponent(b.dataset.tag)}`, { method: "DELETE" }))
         .then(() => b.closest(".chip").remove()).catch(() => {});
     });
   }
@@ -268,7 +298,7 @@ if (itemIdEl) {
     tagAdd.addEventListener("change", () => {
       const names = tagAdd.value.split(",").map((s) => s.trim()).filter(Boolean);
       if (!names.length) return;
-      save(() => api(`/api/items/${itemId}/tags`, { method: "POST", body: JSON.stringify({ names }) }))
+      save("tags", () => api(`/api/items/${itemId}/tags`, { method: "POST", body: JSON.stringify({ names }) }))
         .then(() => {
           const have = new Set([...tagChips.querySelectorAll(".chip-del")].map((b) => b.dataset.tag));
           names.filter((n) => !have.has(n)).forEach((n) => { have.add(n); addTagChip(n); });
@@ -301,11 +331,15 @@ if (itemIdEl) {
     };
     const toggle = (cb) => {
       const cid = +cb.value;
-      const method = cb.checked ? "POST" : "DELETE";
-      save(() => api(`/api/collections/${cid}/items`, { method, body: JSON.stringify({ item_ids: [itemId] }) }))
-        .then(syncChips)
-        .catch(() => { cb.checked = !cb.checked; syncChips(); });
+      // per-collection queue; method is chosen when the request starts, from the box's current state
+      save(`coll:${cid}`, () => {
+        const want = cb.checked;
+        return api(`/api/collections/${cid}/items`, { method: want ? "POST" : "DELETE", body: JSON.stringify({ item_ids: [itemId] }) })
+          .then(() => { cb.dataset.server = want ? "1" : "0"; });
+      }).then(syncChips)
+        .catch(() => { cb.checked = cb.dataset.server === "1"; syncChips(); });
     };
+    collList.querySelectorAll("input.coll").forEach((cb) => { cb.dataset.server = cb.checked ? "1" : "0"; });
     collList.querySelectorAll("input.coll").forEach((cb) => cb.addEventListener("change", () => toggle(cb)));
     chipsEl.addEventListener("click", (e) => {
       const x = e.target.closest(".coll-del");
