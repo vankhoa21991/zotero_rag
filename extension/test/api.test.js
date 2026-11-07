@@ -184,3 +184,19 @@ test("missing server URL or token gives a config error before any fetch", async 
   await assert.rejects(c2.health(), (e) => e.kind === "config");
   assert.equal(f.calls.length, 0);
 });
+
+test("non_json_200_is_a_clear_error", async () => {
+  const fetch = async () => ({ ok: true, status: 200, json: async () => { throw new SyntaxError("x"); } });
+  await assert.rejects(
+    createClient({ baseUrl: "http://s", token: "t", fetch }).health(),
+    (e) => e.kind === "other" && /did not answer like aikeytake-zog/.test(e.message),
+  );
+});
+
+test("normalizeBaseUrl_scheme_default_uses_shared_private_hosts", () => {
+  assert.equal(normalizeBaseUrl("nas"), "http://nas");
+  assert.equal(normalizeBaseUrl("nas:8000"), "http://nas:8000");
+  assert.equal(normalizeBaseUrl("[::1]:8000"), "http://[::1]:8000");
+  assert.equal(normalizeBaseUrl("box.ts.net"), "http://box.ts.net");
+  assert.equal(normalizeBaseUrl("100.64.0.5:1"), "http://100.64.0.5:1");
+});

@@ -77,6 +77,14 @@ export async function savePageFromTab(tab, options, { ext, client, fetchImpl = g
     const [inj] = await ext.scripting.executeScript({ target: { tabId: tab.id }, func: capturePage });
     const cap = inj?.result;
     if (!cap) throw new Error("The page could not be read.");
+    if (cap.tooLarge) {
+      const r = await savePage({
+        client, facts: { ...cap.facts, baseUrl: cap.baseUrl }, html: undefined, tabUrl: tab.url,
+        options: { ...options, saveSnapshot: false }, fetchAsset,
+      });
+      if (!r.duplicate) r.warnings.push("Page too large for a snapshot (over 50 MB), saved link only");
+      return r;
+    }
     return savePage({
       client, facts: { ...cap.facts, baseUrl: cap.baseUrl }, html: cap.html, tabUrl: tab.url, options, fetchAsset,
     });

@@ -1,8 +1,6 @@
 // Thin DOM glue. Decisions live in popup-logic.js, orchestration in save.js.
 import { createClient, flattenCollections } from "./api.js";
 import { parseTags, cleanTitle } from "./metadata.js";
-import { savePdf } from "./save.js";
-import { savePageFromTab, fetchPdfBlob } from "./pipeline.js";
 import { classifyTab, errorMessage, libraryLink } from "./popup-logic.js";
 
 const ext = globalThis.browser ?? globalThis.chrome;
@@ -96,17 +94,14 @@ async function run(saveSnapshot, force = false) {
   setBusy(true);
   showBanner("Saving…", false, true);
   try {
-    const tab = state.tab;
-    let r;
-    if (state.cls.kind === "pdf") {
-      r = await savePdf({ client: state.client, tabUrl: tab.url, title: options.title || tab.title, fetchBlob: fetchPdfBlob, options });
-    } else {
-      r = await savePageFromTab(tab, options, { ext, client: state.client });
-    }
-    showResult(r);
-    try {
-      await ext.storage.local.set({ lastCollection: options.collectionId });
-    } catch { /* convenience only */ }
+    // The save runs in the background worker so it survives this popup closing.
+    const t = state.tab;
+    const reply = await ext.runtime.sendMessage({
+      type: "save", kind: state.cls.kind, tab: { id: t.id, url: t.url, title: t.title }, options,
+    });
+    if (!reply) throw new Error("The background worker did not answer. Reload the extension.");
+    if (!reply.ok) throw Object.assign(new Error(reply.error.message), { kind: reply.error.kind });
+    showResult(reply.result);
   } catch (e) {
     $("form").hidden = false;
     showError(e);

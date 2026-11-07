@@ -1,4 +1,5 @@
 // Pure helpers for the popup (no DOM, no browser APIs).
+import { isPrivateHost } from "./hosts.js";
 
 const RESTRICTED_HOSTS = [
   [/^chromewebstore\.google\.com$/i, "Chrome Web Store pages can't be read by extensions."],
@@ -52,23 +53,6 @@ export function errorMessage(err, serverUrl) {
 
 export function libraryLink(serverUrl, itemId) {
   return `${String(serverUrl).replace(/\/+$/, "")}/items/${itemId}`;
-}
-
-function isPrivateHost(host) {
-  const h = String(host).toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
-  if (h === "localhost" || h.endsWith(".localhost") || h.endsWith(".local")) return true;
-  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h);
-  if (m) {
-    const [a, b] = [Number(m[1]), Number(m[2])];
-    return a === 10 || a === 127 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 169 && b === 254) || a === 0;
-  }
-  if (h.includes(":")) {
-    if (h === "::1" || h === "::") return true;
-    const first = parseInt(h.split(":")[0] || "0", 16);
-    if ((first & 0xfe00) === 0xfc00 || (first & 0xffc0) === 0xfe80) return true;
-    if (/^::ffff:/.test(h)) return true; // IPv4-mapped: be conservative
-  }
-  return false;
 }
 
 // Decides whether the extension may fetch an asset URL found in a page, and with which credentials.

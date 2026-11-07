@@ -1,4 +1,5 @@
 // Server client. Pure: the fetch implementation is a parameter so tests can fake it.
+import { isPrivateHost } from "./hosts.js";
 
 export class ApiError extends Error {
   constructor(kind, message, status = null) {
@@ -9,7 +10,6 @@ export class ApiError extends Error {
   }
 }
 
-const PRIVATE_HOST = /^(localhost|\[.*\]|\d{1,3}(\.\d{1,3}){3}|[^.]+|.*\.(local|lan|home|internal|ts\.net))$/i;
 
 // "192.168.1.5:8000/" -> "http://192.168.1.5:8000"; "zog.example.com" -> "https://zog.example.com".
 // A missing scheme defaults to http for localhost / IPs / single-label / .local hosts, https otherwise.
@@ -17,8 +17,9 @@ export function normalizeBaseUrl(input) {
   let s = String(input ?? "").trim();
   if (!s) return "";
   if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(s)) {
-    const host = s.split(/[/?#]/)[0].replace(/:\d+$/, "");
-    s = (PRIVATE_HOST.test(host) ? "http://" : "https://") + s;
+    let host = s.split(/[/?#]/)[0].replace(/^.*@/, "");
+    host = host.startsWith("[") ? host.slice(0, host.indexOf("]") + 1) : host.replace(/:\d+$/, "");
+    s = (isPrivateHost(host) ? "http://" : "https://") + s;
   }
   let u;
   try { u = new URL(s); } catch { throw new Error("Not a valid server URL."); }
@@ -71,7 +72,14 @@ export function createClient({ baseUrl, token, fetch = globalThis.fetch }) {
     } catch {
       throw new ApiError("network", MESSAGES.network);
     }
-    if (res.ok) return res.status === 204 ? null : res.json();
+    if (res.ok) {
+      if (res.status === 204) return null;
+      try {
+        return await res.json();
+      } catch {
+        throw new ApiError("other", "The server did not answer like aikeytake-zog (proxy login page?)");
+      }
+    }
     const detail = await detailOf(res);
     const s = res.status;
     if (s === 401) throw new ApiError("auth", MESSAGES.auth, s);

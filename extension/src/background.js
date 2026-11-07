@@ -36,43 +36,100 @@ export function init(api, deps = {}) {
     timer = setT(reset, BADGE_MS);
   }
 
-  async function save(info, tab) {
-    let serverUrl = "";
-    try {
-    let token, lastCollection;
-    ({ serverUrl = "", token = "", lastCollection = null } =
-      await api.storage.local.get(["serverUrl", "token", "lastCollection"]));
-    if (!serverUrl || !token) return badge("!", RED, SETUP_HINT);
-    const client = makeClient({ baseUrl: serverUrl, token, fetch: fetchImpl });
-    const base = { tags: [], note: "", force: false, collectionId: lastCollection ?? null };
-    let r;
-      if (info.linkUrl) {
-        if (!/^https?:/i.test(info.linkUrl) || !classifyTab(info.linkUrl).linkable) throw new Error("Can't save this link");
-        const title = String(info.selectionText || "").trim() || info.linkUrl;
-        r = await savePageFromTab({ url: info.linkUrl, title }, { ...base, title, saveSnapshot: false }, { ext: api, client, fetchImpl });
-      } else {
-        const url = tab?.url ?? info.pageUrl;
-        const cls = classifyTab(url);
-        if (!cls.linkable) throw new Error(cls.reason || "This page can't be saved.");
-        const page = { id: tab?.id, url, title: tab?.title };
-        if (cls.kind === "pdf" && !cls.restricted) {
-          r = await savePdf({ client, tabUrl: url, title: tab?.title, fetchBlob: (u) => fetchPdfBlob(u, { fetchImpl }), options: { ...base, title: "", saveSnapshot: true } });
-        } else {
-          // Restricted pages (chrome://, web stores...) cannot be captured: save the tab URL as a link.
-          r = await savePageFromTab(page, { ...base, title: "", saveSnapshot: !cls.restricted }, { ext: api, client, fetchImpl });
-        }
-      }
+  const inFlight = new Set();
+  const keyOf = (u) => String(u ?? "").split("#", 1)[0];
+  const busyError = () => Object.assign(new Error("Save already in progress"), { kind: "busy" });
+
+  // Shows the outcome on the badge (the only feedback when the popup is already gone).
+  function outcome(r) {
     if (r.duplicate) return flash("=", AMBER, "Already in library");
     return flash("✓", GREEN, r.warnings.length ? `Saved. ${r.warnings.join(" ")}` : "Saved to aikeytake-zog");
+  }
+
+  // Runs one save for `url` at most once at a time; `work(client)` -> {itemId, duplicate, warnings}.
+  async function run(url, work, { quietBusy = false } = {}) {
+    let serverUrl = "";
+    try {
+      let token;
+      ({ serverUrl = "", token = "" } = await api.storage.local.get(["serverUrl", "token"]));
+      if (!serverUrl || !token) {
+        await badge("!", RED, SETUP_HINT);
+        throw Object.assign(new Error("Set the server URL and a token in options."), { kind: "config" });
+      }
+      const key = keyOf(url);
+      if (inFlight.has(key)) throw busyError();
+      inFlight.add(key);
+      try {
+        const r = await work(makeClient({ baseUrl: serverUrl, token, fetch: fetchImpl }));
+        await outcome(r);
+        return r;
+      } finally {
+        inFlight.delete(key);
+      }
     } catch (e) {
-      return badge("!", RED, errorMessage(e, serverUrl).text);
+      if (e?.kind === "busy" && quietBusy) throw e;
+      if (e?.kind !== "config") await badge("!", RED, errorMessage(e, serverUrl).text);
+      throw e;
+    }
+  }
+
+  async function save(info, tab) {
+    try {
+      const { lastCollection = null } = await api.storage.local.get(["lastCollection"]).catch(() => ({}));
+      const base = { tags: [], note: "", force: false, collectionId: lastCollection ?? null };
+      if (info.linkUrl) {
+        if (!/^https?:/i.test(info.linkUrl) || !classifyTab(info.linkUrl).linkable) throw new Error("Can't save this link");
+        const title = String(info.linkText || info.selectionText || "").trim() || info.linkUrl;
+        return await run(info.linkUrl, (client) =>
+          savePageFromTab({ url: info.linkUrl, title }, { ...base, title, saveSnapshot: false }, { ext: api, client, fetchImpl }), { quietBusy: true });
+      }
+      const url = tab?.url ?? info.pageUrl;
+      const cls = classifyTab(url);
+      if (!cls.linkable) throw new Error(cls.reason || "This page can't be saved.");
+      const page = { id: tab?.id, url, title: tab?.title };
+      return await run(url, (client) => {
+        if (cls.kind === "pdf" && !cls.restricted) {
+          return savePdf({ client, tabUrl: url, title: tab?.title, fetchBlob: (u) => fetchPdfBlob(u, { fetchImpl }), options: { ...base, title: "", saveSnapshot: true } });
+        }
+        // Restricted pages (chrome://, web stores...) cannot be captured: save the tab URL as a link.
+        return savePageFromTab(page, { ...base, title: "", saveSnapshot: !cls.restricted }, { ext: api, client, fetchImpl });
+      }, { quietBusy: true });
+    } catch (e) {
+      if (e?.kind === "busy" || e?.kind === "config") return; // ignored duplicate click / hint already on the badge
+      if (!e?.kind) await badge("!", RED, errorMessage(e, "").text);
     }
   }
 
   async function onClicked(info, tab) {
     if (info.menuItemId !== MENU_ID) return;
-    await reset(); // a new event clears any previous badge
+    if (!inFlight.size) await reset(); // a new event clears any previous badge (not while a save runs)
     return save(info, tab);
+  }
+
+  // Popup -> worker: {type:"save", kind:"page"|"pdf", tab:{id,url,title}, options}. The save runs here so it
+  // survives the popup closing. Reply: {ok:true, result} | {ok:false, error:{kind,message}}.
+  async function onSaveMessage(msg) {
+    const { tab, kind, options } = msg;
+    try {
+      const r = await run(tab.url, async (client) => {
+        const res = kind === "pdf"
+          ? await savePdf({ client, tabUrl: tab.url, title: options.title || tab.title, fetchBlob: (u) => fetchPdfBlob(u, { fetchImpl }), options })
+          : await savePageFromTab(tab, options, { ext: api, client, fetchImpl });
+        if (!res.duplicate && options.collectionId !== undefined) {
+          try { await api.storage.local.set({ lastCollection: options.collectionId }); } catch { /* convenience only */ }
+        }
+        return res;
+      });
+      return { ok: true, result: r };
+    } catch (e) {
+      return { ok: false, error: { kind: e?.kind ?? "other", message: String(e?.message ?? e) } };
+    }
+  }
+
+  function onMessage(msg, _sender, sendResponse) {
+    if (msg?.type !== "save") return false;
+    onSaveMessage(msg).then((r) => { try { sendResponse(r); } catch { /* popup gone: the badge has the outcome */ } });
+    return true; // keep the channel open for the async reply
   }
 
   async function onInstalled() {
@@ -83,7 +140,8 @@ export function init(api, deps = {}) {
   reset(); // clear any stale badge at worker startup
   api.runtime.onInstalled.addListener(onInstalled);
   menus.onClicked.addListener(onClicked);
-  return { onClicked, onInstalled };
+  api.runtime.onMessage?.addListener(onMessage);
+  return { onClicked, onInstalled, onMessage, onSaveMessage };
 }
 
 const g = globalThis.browser ?? globalThis.chrome;

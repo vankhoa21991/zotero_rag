@@ -27,7 +27,7 @@ the extension saves.
 
 ### Firefox (temporary add-on)
 
-1. Open `about:debugging#/runtime/this-firefox` -> **Load Temporary Add-on...** and pick
+1. Firefox 121 or newer. Open `about:debugging#/runtime/this-firefox` -> **Load Temporary Add-on...** and pick
    `extension/manifest.json`. It stays until Firefox restarts.
 2. Open the add-on's options (about:addons -> the extension -> Preferences) and configure as above.
 3. Firefox treats the broad `<all_urls>` host permission as optional: click **Grant access to
@@ -43,8 +43,7 @@ not set up in this repository.
 
 Click the toolbar icon (or `Ctrl+Shift+Y`), edit the title, add tags (Enter or comma),
 choose a collection, optionally a note, **Save page** (or **Save PDF** on a PDF tab). **Save
-link only** stores just the URL. The right-click menu has "save page" and "save link"
-entries; the toolbar badge shows a check (saved), `=` (already in library) or `!` (error;
+link only** stores just the URL. The right-click menu has one entry, "Save to aikeytake-zog", on pages and links (a link is saved as a link only, titled with its text); the toolbar badge shows a check (saved), `=` (already in library) or `!` (error;
 hover for the message).
 
 Saving the same URL again (fragment ignored) shows **Already in library**; **Save again**
@@ -72,9 +71,13 @@ says "N images/style files not saved (left as links)"). It is not a SingleFile-g
   and the server serves snapshot files with a restrictive CSP in a sandboxed origin.
 - Cookies are sent only for assets on the page's own origin; cross-origin assets are fetched
   without credentials.
-- When the page is on a public host, assets on localhost, `.local`, loopback, link-local and
-  private (LAN) addresses are skipped, so a hostile page cannot make the extension read your
-  intranet into a snapshot.
+- When the page is on a public host, assets on known private hostnames and addresses are skipped:
+  localhost, `.local`/`.lan`/`.home`/`.internal`/`.ts.net`, single-label names (`http://nas/`),
+  loopback, 10/8, 172.16/12, 192.168/16, 169.254/16, 100.64/10, IPv6 ::1, fc00::/7, fe80::/10. A public
+  DNS name that resolves to a LAN address is not detected.
+- The save runs in the extension's background worker, so closing the popup mid-save does not
+  leave a half-saved item; the badge shows the outcome. A second save of the same URL while one runs
+  is refused ("Save already in progress").
 - Residual risk: a public page can reference an asset that **redirects** to a private host. The
   browser follows the redirect, so the extension makes one blind GET to the private address; the
   response is checked afterwards (`res.url`) and dropped, never stored or shown. (Manual redirect
@@ -84,6 +87,10 @@ says "N images/style files not saved (left as links)"). It is not a SingleFile-g
 
 ## Limitations
 
+- Planned: a server-side single batch for create + tags + collection (`POST /items` accepting tags and
+  collection ids under one batch id); today a save is 3 History batches.
+- Pages over 50 MB of HTML are saved as a link only, with a warning.
+- Firefox needs 121 or newer (`strict_min_version`; MV3 background service worker support).
 - No offline queue: if the server is unreachable the save fails with a message; nothing is stored.
 - Duplicates are detected by URL only (fragment ignored), not by content.
 - A read-only token is only noticed on the first save attempt ("This token is read-only"); the

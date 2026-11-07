@@ -25,6 +25,6 @@
     }
   },
   "browser_specific_settings": {
-    "gecko": { "id": "zog-saver@aikeytake.local", "strict_min_version": "115.0" }
+    "gecko": { "id": "zog-saver@aikeytake.local", "strict_min_version": "121.0" }
   }
 }

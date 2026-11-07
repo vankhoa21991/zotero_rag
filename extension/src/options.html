@@ -13,6 +13,9 @@
   .row { margin-top: 1.25rem; display: flex; gap: .6rem; align-items: center; }
   button { font: inherit; padding: .45rem .9rem; }
   #status { margin-top: 1rem; min-height: 1.5em; }
+  .warn { margin: .5rem 0 0; padding: .4rem .6rem; border-radius: 6px; font-size: 13px; background: #fbefc5; color: #6b4a00; }
+  @media (prefers-color-scheme: dark) { .warn { background: #3d3416; color: #ecd488; } }
+  [hidden] { display: none !important; }
   #status.ok { color: #1a7f37; }
   #status.err { color: #c62828; }
 </style>
@@ -23,6 +26,7 @@
   <label for="serverUrl">Server URL
     <span class="hint">e.g. http://192.168.1.10:8000 or https://zog.example.com</span></label>
   <input id="serverUrl" type="text" inputmode="url" spellcheck="false" placeholder="http://192.168.1.10:8000">
+  <p id="insecure" class="warn" hidden>This server is not on a private network and the URL is http://, so the token is sent unencrypted. Use https:// if you can.</p>
   <label for="token">API token
     <span class="hint">A write token from the server's Settings page. Stored only in this browser.</span></label>
   <input id="token" type="password" spellcheck="false" autocomplete="off">

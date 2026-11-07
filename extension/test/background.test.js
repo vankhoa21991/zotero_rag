@@ -11,7 +11,7 @@ function fakeApi(stored = { serverUrl: "http://s", token: "t", lastCollection: 7
   const exec = [];
   return {
     badge, listeners, menus, exec,
-    runtime: { onInstalled: { addListener: (f) => (listeners.installed = f) } },
+    runtime: { onInstalled: { addListener: (f) => (listeners.installed = f) }, onMessage: { addListener: (f) => (listeners.message = f) } },
     contextMenus: {
       removeAll: (cb) => { menus.removed++; return Promise.resolve(cb?.()); },
       create: (o) => { menus.created.push(o); },
@@ -189,4 +189,91 @@ test("unsavable_link_schemes_are_rejected", async () => {
     assert.equal(api.badge.title, "Can't save this link");
     assert.equal(client.calls.length, 0);
   }
+});
+
+const msg = (over = {}) => ({
+  type: "save", kind: "page", tab: { id: 1, url: "https://e.com/p", title: "P" },
+  options: { title: "P", tags: ["a"], collectionId: 3, note: "", saveSnapshot: true, force: false }, ...over,
+});
+const ask = (api, m) => new Promise((resolve) => api.listeners.message(m, {}, resolve));
+
+test("message_save_returns_result_and_sets_badge", async () => {
+  const { api, client } = setup();
+  assert.equal(api.listeners.message(msg(), {}, () => {}), true, "keeps the channel open");
+  const r = await ask(api, msg({ tab: { id: 1, url: "https://e.com/q", title: "Q" } }));
+  assert.equal(r.ok, true);
+  assert.equal(r.result.itemId, 42);
+  assert.equal(r.result.duplicate, false);
+  assert.ok(client.names().includes("createItem") && client.names().includes("addTags"));
+  assert.equal(api.badge.text, "✓");
+  assert.equal(api.listeners.message({ type: "other" }, {}, () => {}), false);
+});
+
+test("message_save_duplicate_and_errors", async () => {
+  let s = setup({ client: fakeClient({ existing: [{ id: 5 }] }) });
+  let r = await ask(s.api, msg());
+  assert.deepEqual([r.ok, r.result.duplicate, r.result.itemId], [true, true, 5]);
+  assert.equal(s.api.badge.text, "=");
+  s = setup({ client: fakeClient({ fail: { createItem: new ApiError("forbidden", "ro", 403) } }) });
+  r = await ask(s.api, msg());
+  assert.equal(r.ok, false);
+  assert.equal(r.error.kind, "forbidden");
+  assert.equal(s.api.badge.text, "!");
+  s = setup({ stored: {} });
+  r = await ask(s.api, msg());
+  assert.equal(r.ok, false);
+  assert.equal(r.error.kind, "config");
+});
+
+test("popup_gone_sendResponse_throws_badge_still_set", async () => {
+  const { api } = setup();
+  api.listeners.message(msg(), {}, () => { throw new Error("Attempting to use a disconnected port object"); });
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal(api.badge.text, "✓");
+});
+
+test("concurrent_same_url_saves_create_one_item", async () => {
+  const client = fakeClient();
+  let release;
+  const gate = new Promise((r) => (release = r));
+  const slow = client.createItem;
+  client.createItem = async (...a) => { await gate; return slow(...a); };
+  const { api } = setup({ client });
+  const first = ask(api, msg());
+  await new Promise((r) => setTimeout(r, 20));
+  const second = await ask(api, msg({ tab: { id: 1, url: "https://e.com/p#frag", title: "P" } }));
+  assert.equal(second.ok, false);
+  assert.equal(second.error.message, "Save already in progress");
+  // a menu click for the same URL is ignored too
+  await api.listeners.clicked({ menuItemId: "zog-save" }, { id: 1, url: "https://e.com/p", title: "P" });
+  release();
+  assert.equal((await first).ok, true);
+  assert.equal(client.calls.filter((c) => c.n === "createItem").length, 1);
+  // after completion the URL can be saved again (force)
+  const third = await ask(api, msg({ options: { ...msg().options, force: true } }));
+  assert.equal(third.ok, true);
+});
+
+test("two_quick_menu_clicks_create_one_item", async () => {
+  const client = fakeClient();
+  const { api } = setup({ client });
+  const ev = [{ menuItemId: "zog-save" }, { id: 1, url: "https://e.com/p", title: "P" }];
+  await Promise.all([api.listeners.clicked(...ev), api.listeners.clicked(...ev)]);
+  assert.equal(client.calls.filter((c) => c.n === "createItem").length, 1);
+});
+
+test("link_title_prefers_linkText", async () => {
+  const { api, client } = setup();
+  await api.listeners.clicked({ menuItemId: "zog-save", linkUrl: "https://e.com/l", linkText: "Link text", selectionText: "sel" }, { id: 1, url: "https://e.com/p" });
+  assert.equal(client.calls.find((c) => c.n === "createItem").a[0].title, "Link text");
+});
+
+test("oversized_page_is_saved_link_only_with_warning", async () => {
+  const { api, client } = setup();
+  api.scripting.executeScript = async () => [{ result: { facts: { url: "https://e.com/p", title: "P", metas: [] }, baseUrl: "https://e.com/p", html: "", tooLarge: true } }];
+  const r = await ask(api, msg());
+  assert.equal(r.ok, true);
+  assert.ok(r.result.warnings.some((w) => /too large/.test(w)));
+  assert.ok(!client.names().includes("uploadFile"));
+  assert.ok(client.names().includes("createItem"));
 });

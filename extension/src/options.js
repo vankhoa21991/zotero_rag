@@ -1,4 +1,5 @@
 import { createClient, normalizeBaseUrl } from "./api.js";
+import { isPrivateHost } from "./hosts.js";
 
 const ext = globalThis.browser ?? globalThis.chrome;
 const $ = (id) => document.getElementById(id);
@@ -19,13 +20,25 @@ function readForm() {
     return null;
   }
   $("serverUrl").value = serverUrl;
+  updateInsecureNote();
   return { serverUrl, token: $("token").value.trim() };
+}
+
+// http:// to a non-private host sends the token unencrypted.
+function updateInsecureNote() {
+  let insecure = false;
+  try {
+    const u = new URL(normalizeBaseUrl($("serverUrl").value));
+    insecure = u.protocol === "http:" && !isPrivateHost(u.hostname);
+  } catch { /* invalid URL: reported on save */ }
+  $("insecure").hidden = !insecure;
 }
 
 async function load() {
   const { serverUrl = "", token = "" } = await ext.storage.local.get(["serverUrl", "token"]);
   $("serverUrl").value = serverUrl;
   $("token").value = token;
+  updateInsecureNote();
 }
 
 async function save(event) {
@@ -48,6 +61,7 @@ async function test() {
   }
 }
 
+$("serverUrl").addEventListener("input", updateInsecureNote);
 $("form").addEventListener("submit", save);
 $("test").addEventListener("click", test);
 load();

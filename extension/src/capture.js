@@ -4,6 +4,7 @@
 export function capturePage() {
   const MAX_METAS = 300;
   const MAX_CONTENT = 5000;
+  const MAX_HTML = 50 * 1024 * 1024;
   const metas = [];
   for (const el of document.querySelectorAll("meta[name], meta[property]")) {
     const name = (el.getAttribute("name") || el.getAttribute("property") || "").trim().toLowerCase();
@@ -12,15 +13,18 @@ export function capturePage() {
     metas.push({ name, content: content.slice(0, MAX_CONTENT) });
     if (metas.length >= MAX_METAS) break;
   }
+  const html = document.documentElement.outerHTML;
+  const tooLarge = html.length > MAX_HTML;
   return {
     facts: {
       url: location.href,
       title: document.title || "",
       metas,
-      lang: document.documentElement.getAttribute("lang") || "",
+      lang: (document.documentElement.getAttribute("lang") || "").slice(0, 35),
     },
     baseUrl: document.baseURI || location.href,
-    html: document.documentElement.outerHTML,
+    html: tooLarge ? "" : html,
+    tooLarge,
   };
 }
 
