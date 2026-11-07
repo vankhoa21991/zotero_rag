@@ -172,3 +172,21 @@ test("asset_redirecting_to_private_host_is_dropped", async () => {
   assert.equal((await ok("https://cdn.example.com/a.png")).data.length, 3);
   function fakeAsset(fetchImpl) { return fetchAssetFor("https://example.com/page", { fetchImpl }); }
 });
+
+test("storage_failure_sets_red_badge", async () => {
+  const { api } = setup();
+  api.storage.local.get = async () => { throw new Error("storage broke"); };
+  await api.listeners.clicked({ menuItemId: "zog-save", linkUrl: "https://e.com/l" }, { id: 1, url: "https://e.com/p" });
+  assert.equal(api.badge.text, "!");
+  assert.equal(api.badge.title, "storage broke");
+});
+
+test("unsavable_link_schemes_are_rejected", async () => {
+  for (const linkUrl of ["javascript:alert(1)", "data:text/html,x", "blob:https://e.com/1", "mailto:a@b.c", "tel:123"]) {
+    const { api, client } = setup();
+    await api.listeners.clicked({ menuItemId: "zog-save", linkUrl }, { id: 1, url: "https://e.com/p" });
+    assert.equal(api.badge.text, "!", linkUrl);
+    assert.equal(api.badge.title, "Can't save this link");
+    assert.equal(client.calls.length, 0);
+  }
+});

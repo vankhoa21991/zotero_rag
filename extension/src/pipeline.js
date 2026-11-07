@@ -46,6 +46,10 @@ export function fetchAssetFor(pageUrl, { fetchImpl = globalThis.fetch } = {}) {
       const res = await fetchImpl(url, { credentials: policy.credentials, signal: AbortSignal.timeout(ASSET_TIMEOUT_MS) });
       if (!res.ok) return null;
       // fetch follows redirects: the final URL must pass the policy too (public page -> private host).
+      // Residual risk: that check runs after the request, so a redirect to a private host still causes one
+      // blind GET (response dropped, never stored). redirect:"manual" cannot fix it: extension fetches return an
+      // opaqueredirect with no Location (verified in Chromium), so hops cannot be inspected. Cookies are
+      // only sent for same-origin assets (credentials "omit" otherwise, so none cross a cross-origin hop).
       if (res.url && res.url !== url && !assetFetchPolicy(pageUrl, res.url).allow) return null;
       const chunks = await readLimited(res, ASSET_MAX_BYTES);
       const data = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0));
