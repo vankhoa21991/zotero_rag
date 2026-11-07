@@ -13,6 +13,7 @@ from fastapi import Depends, Form, Request
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from markupsafe import Markup, escape
 
 import json
 import re
@@ -57,6 +58,26 @@ def doi_url(value) -> str | None:
     return "https://doi.org/" + quote(v, safe="/:()") if _DOI_RE.match(v) else None
 
 
+def highlight(text, q) -> Markup:
+    """Escape `text` and wrap case-insensitive matches of the query words in <mark>.
+
+    All item text is escaped; only the <mark> tags we add survive.
+    """
+    text = text if isinstance(text, str) else ""
+    words = sorted({w for w in (q or "").split() if w}, key=len, reverse=True)
+    if not words:
+        return Markup(escape(text))
+    pat = re.compile("(" + "|".join(re.escape(w) for w in words) + ")", re.I)
+    out = []
+    for i, part in enumerate(pat.split(text)):
+        if i % 2:
+            out.append(Markup("<mark>%s</mark>") % part)
+        else:
+            out.append(escape(part))
+    return Markup("").join(out)
+
+
+templates.env.filters["highlight"] = highlight
 templates.env.filters["safe_url"] = safe_url
 templates.env.filters["url_domain"] = url_domain
 templates.env.filters["doi_url"] = doi_url

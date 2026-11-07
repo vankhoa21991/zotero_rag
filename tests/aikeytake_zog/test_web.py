@@ -391,3 +391,42 @@ def test_link_attachment_uses_safe_url(client, url, linked):
     html = client.get(f"/items/{iid}").text
     assert 'href="javascript:' not in html
     assert (f'href="{url}" target="_blank" rel="noopener noreferrer"' in html) == linked
+
+
+def test_library_row_shows_authors_year_tags_and_snapshot_icon(client):
+    iid = client.post("/api/items", json={
+        "title": "Deep <b>Learning</b>", "date": "2020-01-01", "url": "https://www.nature.com/x",
+        "creators": [{"first": "A", "last": "Chen"}, {"first": "B", "last": "Wang"}],
+        "abstract": "learning <script>alert(1)</script> things",
+    }).json()["id"]
+    client.post(f"/api/items/{iid}/tags", json={"names": ["ml"]})
+    _login(client)
+    html = client.get("/").text
+    assert '<span class="chip">ml</span>' in html
+    assert "Chen &amp; Wang · 2020 · item · nature.com" in html or "Chen &amp; Wang · 2020 ·" in html
+    assert "nature.com" in html and "Deep &lt;b&gt;Learning" in html
+    assert "<b>Learning" not in html
+    html = client.get("/?q=learning").text
+    assert "<script>alert" not in html and "&lt;script&gt;" in html
+    assert "<mark>" in html
+
+
+def test_bare_item_row_has_no_empty_separators(client):
+    client.post("/api/items", json={"title": "Bare", "type": "item"})
+    _login(client)
+    html = client.get("/").text
+    assert "None" not in html
+    assert "· ·" not in html and "snap-badge" not in html and "row-tags" not in html
+
+
+def test_highlight_filter_escapes():
+    from aikeytake_zog.web import highlight
+    out = str(highlight("a <i>Foo</i> & foo", "foo"))
+    assert out == "a &lt;i&gt;<mark>Foo</mark>&lt;/i&gt; &amp; <mark>foo</mark>"
+    assert str(highlight("<x>", "")) == "&lt;x&gt;"
+
+
+def test_library_row_snapshot_badge(client):
+    client.post("/login", data={"password": "test-pass"}, follow_redirects=False)
+    _upload_snapshot(client)
+    assert "snap-badge" in client.get("/").text

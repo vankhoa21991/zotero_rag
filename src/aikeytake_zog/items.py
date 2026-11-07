@@ -285,9 +285,12 @@ def list_items(
     out = []
     for r in conn.execute(sql, params).fetchall():
         d = dict(r)
-        d["creators"] = json.loads(d["creators"])
+        try:
+            d["creators"] = json.loads(d["creators"])
+        except ValueError:
+            d["creators"] = []  # legacy/malformed JSON must not break the list
         out.append(d)
-    return search.add_pdf_ids(conn, out)
+    return search.add_row_summary(conn, out)
 
 
 def _apply_item_change(conn: sqlite3.Connection, entity_id: str, field: str, value) -> None:

@@ -1,5 +1,5 @@
 """Tests for aikeytake_zog.items: CRUD, custom fields, trash, bulk edits."""
-from aikeytake_zog import changelog, items
+from aikeytake_zog import changelog, items, search
 
 
 def test_update_core_and_custom_field_roundtrip(conn):
@@ -162,3 +162,60 @@ def test_list_items_pdf_id_first_stored_pdf(conn):
     assert by_id[a] == good
     assert by_id[b] is None
     assert by_id[c] is None
+
+
+def _count_statements(conn, fn):
+    stmts = []
+    conn.set_trace_callback(stmts.append)
+    try:
+        fn()
+    finally:
+        conn.set_trace_callback(None)
+    return len(stmts)
+
+
+def test_list_items_row_summary(conn):
+    iid = items.create_item(conn, {
+        "title": "T", "date": "Published 2021-05-03", "url": "https://www.example.com/a",
+        "creators": [{"first": "A", "last": "Chen"}, {"first": "B", "last": "Wang"}],
+    }, actor="user")
+    for n in "fedcbaz":
+        conn.execute("INSERT OR IGNORE INTO tags(name) VALUES(?)", (n,))
+        conn.execute("INSERT INTO item_tags(item_id, tag_id) SELECT ?, id FROM tags WHERE name=?", (iid, n))
+    conn.execute("INSERT INTO attachments(item_id, kind) VALUES(?, 'snapshot')", (iid,))
+    conn.commit()
+    row = items.list_items(conn)[0]
+    assert row["creators_short"] == "Chen & Wang"
+    assert row["year"] == "2021" and row["domain"] == "example.com"
+    assert row["tags"] == ["a", "b", "c", "d", "e"]
+    assert row["has_snapshot"] is True and row["pdf_id"] is None
+    # search rows carry the same keys
+    srow = search.search(conn, "T")[0]
+    for k in ("creators_short", "year", "domain", "tags", "has_snapshot", "pdf_id"):
+        assert srow[k] == row[k]
+
+    def many(n):
+        for i in range(n):
+            items.create_item(conn, {"title": f"x{i}"}, actor="user")
+        conn.commit()
+    many(1)
+    one = _count_statements(conn, lambda: items.list_items(conn, limit=2))
+    many(20)
+    twenty = _count_statements(conn, lambda: items.list_items(conn, limit=22))
+    assert one == twenty
+
+
+def test_row_summary_edge_cases(conn):
+    def row(**kw):
+        iid = items.create_item(conn, {"title": "E", **kw}, actor="user")
+        conn.commit()
+        return next(r for r in items.list_items(conn) if r["id"] == iid)
+    assert row()["creators_short"] == "" and row()["year"] is None and row()["domain"] is None
+    assert row(creators=[{"last": "Chen"}])["creators_short"] == "Chen"
+    assert row(creators=[{"last": "C"}, {"last": "W"}, {"last": "X"}])["creators_short"] == "C et al."
+    assert row(creators=[{"name": "WHO"}])["creators_short"] == "WHO"
+    assert row(url="javascript:1")["domain"] is None
+    assert row(date="12345")["year"] is None
+    conn.execute("UPDATE items SET creators='{not json'")
+    conn.commit()
+    assert items.list_items(conn)[0]["creators_short"] == ""

@@ -9,6 +9,7 @@ BM25 weights: title > tags/creators > abstract/notes > fulltext.
 import json
 import re
 import sqlite3
+from urllib.parse import urlsplit
 
 _TAG_RE = re.compile(r"<[^>]+>")
 
@@ -121,6 +122,86 @@ def add_pdf_ids(conn: sqlite3.Connection, rows: list[dict]) -> list[dict]:
     return rows
 
 
+_YEAR_RE = re.compile(r"(?<!\d)\d{4}(?!\d)")
+
+
+def _short_creators(creators) -> str:
+    """'Chen', 'Chen & Wang', 'Chen et al.'; '' when none or malformed."""
+    if isinstance(creators, str):
+        try:
+            creators = json.loads(creators)
+        except ValueError:
+            return ""
+    if not isinstance(creators, list):
+        return ""
+    names = []
+    for c in creators:
+        if not isinstance(c, dict):
+            continue
+        n = c.get("last") or c.get("name") or c.get("first")
+        if isinstance(n, str) and n.strip():
+            names.append(n.strip())
+    if not names:
+        return ""
+    if len(names) == 1:
+        return names[0]
+    if len(names) == 2:
+        return f"{names[0]} & {names[1]}"
+    return f"{names[0]} et al."
+
+
+def _domain(url) -> str | None:
+    if not isinstance(url, str):
+        return None
+    try:
+        u = urlsplit(url.strip())
+        host = u.hostname
+    except ValueError:
+        return None
+    if u.scheme not in ("http", "https") or not host:
+        return None
+    return host[4:] if host.startswith("www.") else host
+
+
+def add_row_summary(conn: sqlite3.Connection, rows: list[dict]) -> list[dict]:
+    """Add pdf_id, creators_short, year, domain, tags (first 5), has_snapshot.
+
+    Shared by list_items and search so both library modes render identical
+    rows. Two grouped queries (attachments, tags) over the page's ids.
+    """
+    add_pdf_ids(conn, rows)
+    ids = [r["id"] for r in rows]
+    snaps: set[int] = set()
+    tagmap: dict[int, list[str]] = {}
+    if ids:
+        marks = ",".join("?" * len(ids))
+        for r in conn.execute(
+            "SELECT DISTINCT item_id FROM attachments"
+            f" WHERE kind='snapshot' AND missing=0 AND item_id IN ({marks})",
+            ids,
+        ):
+            snaps.add(r["item_id"])
+        for r in conn.execute(
+            "SELECT it.item_id, t.name FROM item_tags it JOIN tags t ON t.id=it.tag_id"
+            f" WHERE it.item_id IN ({marks}) ORDER BY t.name",
+            ids,
+        ):
+            tagmap.setdefault(r["item_id"], []).append(r["name"])
+    for r in rows:
+        r["creators_short"] = _short_creators(r.get("creators"))
+        m = _YEAR_RE.search(r.get("date") or "")
+        r["year"] = m.group(0) if m else None
+        r["domain"] = _domain(r.get("url"))
+        r["tags"] = tagmap.get(r["id"], [])[:5]
+        r["has_snapshot"] = r["id"] in snaps
+        if isinstance(r.get("creators"), str):
+            try:
+                r["creators"] = json.loads(r["creators"])
+            except ValueError:
+                r["creators"] = []
+    return rows
+
+
 def search(
     conn: sqlite3.Connection,
     query: str,
@@ -136,7 +217,7 @@ def search(
     if not q:
         return []
     sql = (
-        "SELECT i.id, i.title, i.type, i.url,"
+        "SELECT i.id, i.title, i.type, i.url, i.date, i.creators,"
         " COALESCE("
         "  NULLIF(snippet(item_fts, 6, '', '', '…', 10), ''), "
         "  NULLIF(snippet(item_fts, 4, '', '', '…', 10), ''), "
@@ -169,4 +250,4 @@ def search(
         params.append(type)
     sql += " ORDER BY score DESC, i.id ASC LIMIT ? OFFSET ?"
     params += [limit, offset]
-    return add_pdf_ids(conn, [dict(r) for r in conn.execute(sql, params).fetchall()])
+    return add_row_summary(conn, [dict(r) for r in conn.execute(sql, params).fetchall()])
