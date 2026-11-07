@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>aikeytake-zog Saver options</title>
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; max-width: 34rem; margin: 2rem auto; padding: 0 1rem; color: #222; background: #fff; }
+  @media (prefers-color-scheme: dark) { body { color: #ddd; background: #1b1b1b; } input { background: #2a2a2a; color: #ddd; } }
+  label { display: block; margin-top: 1rem; font-weight: 600; }
+  input { width: 100%; box-sizing: border-box; padding: .45rem; font: inherit; }
+  .hint { font-size: 13px; opacity: .75; font-weight: 400; }
+  .row { margin-top: 1.25rem; display: flex; gap: .6rem; align-items: center; }
+  button { font: inherit; padding: .45rem .9rem; }
+  #status { margin-top: 1rem; min-height: 1.5em; }
+  #status.ok { color: #1a7f37; }
+  #status.err { color: #c62828; }
+</style>
+</head>
+<body>
+<h1>aikeytake-zog Saver</h1>
+<form id="form" autocomplete="off">
+  <label for="serverUrl">Server URL
+    <span class="hint">e.g. http://192.168.1.10:8000 or https://zog.example.com</span></label>
+  <input id="serverUrl" type="text" inputmode="url" spellcheck="false" placeholder="http://192.168.1.10:8000">
+  <label for="token">API token
+    <span class="hint">A write token from the server's Settings page. Stored only in this browser.</span></label>
+  <input id="token" type="password" spellcheck="false" autocomplete="off">
+  <div class="row">
+    <button type="submit" id="save">Save</button>
+    <button type="button" id="test">Test connection</button>
+  </div>
+</form>
+<p id="status" role="status" aria-live="polite"></p>
+<script type="module" src="options.js"></script>
+</body>
+</html>
