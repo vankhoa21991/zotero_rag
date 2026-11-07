@@ -246,7 +246,7 @@ def web_routes(app) -> None:
         q: str | None = None,
         type: str | None = None,
         tag: str | None = None,
-        collection: int | None = None,
+        collection: str | None = None,
         recursive: str | None = None,
         sort: str | None = None,
         order: str | None = None,
@@ -256,6 +256,14 @@ def web_routes(app) -> None:
         gate = _gate(request, conn)
         if gate is not None:
             return gate
+        # Forms and links may send empty values (collection=); treat them as unset.
+        q = (q or "").strip() or None
+        type = (type or "").strip() or None
+        tag = (tag or "").strip() or None
+        try:
+            collection = int(collection) if (collection or "").strip() else None
+        except ValueError:
+            collection = None
         if sort not in items.SORTS:
             sort = None
         if order not in ("asc", "desc"):

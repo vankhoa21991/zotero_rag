@@ -24,7 +24,7 @@
 {% set cur = sort or 'modified' %}
 {% set cur_order = order or ('asc' if cur == 'title' else 'desc') %}
 {% set next_order = ('asc' if cur_order == 'desc' else 'desc') if cur == key else ('asc' if key == 'title' else 'desc') %}
-<a class="sort-link{{ ' active' if cur == key else '' }}" href="/?q={{ (q or '') | urlencode }}&type={{ (type or '') | urlencode }}&tag={{ (tag or '') | urlencode }}&collection={{ collection or '' }}{% if collection %}&recursive={{ 1 if recursive else 0 }}{% endif %}&sort={{ key }}&order={{ next_order }}"{% if cur == key %} aria-sort="{{ 'ascending' if cur_order == 'asc' else 'descending' }}"{% endif %}>{{ label }}{% if cur == key %} <span aria-hidden="true">{{ '↑' if cur_order == 'asc' else '↓' }}</span>{% endif %}</a>
+<a class="sort-link{{ ' active' if cur == key else '' }}" href="/?q={{ (q or '') | urlencode }}&type={{ (type or '') | urlencode }}&tag={{ (tag or '') | urlencode }}{% if collection %}&collection={{ collection }}&recursive={{ 1 if recursive else 0 }}{% endif %}&sort={{ key }}&order={{ next_order }}"{% if cur == key %} aria-sort="{{ 'ascending' if cur_order == 'asc' else 'descending' }}"{% endif %}>{{ label }}{% if cur == key %} <span aria-hidden="true">{{ '↑' if cur_order == 'asc' else '↓' }}</span>{% endif %}</a>
 {% endmacro %}
 {% block body %}
 <h1>Library</h1>
@@ -41,6 +41,8 @@
   <input type="hidden" name="recursive" value="0">
   <label class="inline-check"><input type="checkbox" name="recursive" value="1" {{ 'checked' if recursive else '' }}> Include sub-collections</label>
   {% endif %}
+  {% if sort %}<input type="hidden" name="sort" value="{{ sort }}">{% endif %}
+  {% if order %}<input type="hidden" name="order" value="{{ order }}">{% endif %}
   <button type="submit">Filter</button>
 </form>
 <div class="layout">
@@ -76,7 +78,7 @@
     <p class="muted">No items{% if q %} match “{{ q }}”{% endif %}.</p>
     {% endfor %}
     {% if has_next %}
-    <p><a class="pager" href="/?q={{ (q or '') | urlencode }}&type={{ (type or '') | urlencode }}&tag={{ (tag or '') | urlencode }}&collection={{ collection or '' }}{% if collection %}&recursive={{ 1 if recursive else 0 }}{% endif %}{% if sort %}&sort={{ sort }}{% endif %}{% if order %}&order={{ order }}{% endif %}&page={{ page + 1 }}">next page →</a></p>
+    <p><a class="pager" href="/?q={{ (q or '') | urlencode }}&type={{ (type or '') | urlencode }}&tag={{ (tag or '') | urlencode }}{% if collection %}&collection={{ collection }}&recursive={{ 1 if recursive else 0 }}{% endif %}{% if sort %}&sort={{ sort }}{% endif %}{% if order %}&order={{ order }}{% endif %}&page={{ page + 1 }}">next page →</a></p>
     {% endif %}
   </section>
   </section>

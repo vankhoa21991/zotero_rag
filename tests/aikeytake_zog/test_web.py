@@ -842,3 +842,40 @@ def test_pager_keeps_sort(client):
     _make_items(client, [f"Item {i}" for i in range(101)])
     html = _web_login(client).get("/?sort=added&order=asc").text
     assert "sort=added&order=asc&page=2" in html
+
+
+def test_library_tolerates_empty_query_params(client):
+    _make_items(client, ["One", "Two"])
+    web = _web_login(client)
+    for url in (
+        "/?q=&type=&tag=&collection=",
+        "/?collection=&sort=added&order=desc",
+        "/?collection=abc",
+    ):
+        r = web.get(url)
+        assert r.status_code == 200, url
+        assert "One" in r.text and "Two" in r.text, url
+    assert web.get("/?collection=&page=2").status_code == 200  # empty page, but no error
+
+
+def test_sort_and_pager_links_never_carry_an_empty_collection(client):
+    _make_items(client, [f"Item {i}" for i in range(101)])
+    html = _web_login(client).get("/").text
+    assert "collection=&" not in html and 'collection="' not in html.replace('data-viewed-collection=""', "")
+    assert "sort=added" in html
+
+
+def test_filter_form_keeps_the_chosen_sort(client):
+    _make_items(client, ["One"])
+    html = _web_login(client).get("/?sort=added&order=asc").text
+    assert '<input type="hidden" name="sort" value="added">' in html
+    assert '<input type="hidden" name="order" value="asc">' in html
+
+
+def test_filter_by_type_tag_and_query_with_sort(client):
+    ids = _make_items(client, ["Alpha paper", "Beta page"])
+    client.post(f"/api/items/{ids[0]}/tags", json={"names": ["ml"]})
+    web = _web_login(client)
+    for url in ("/?type=webpage&sort=title&order=asc", "/?tag=ml&sort=added&order=desc", "/?q=Alpha&sort=added&order=desc"):
+        r = web.get(url)
+        assert r.status_code == 200 and "Alpha paper" in r.text, url
