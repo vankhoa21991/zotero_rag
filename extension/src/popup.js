@@ -1,70 +1,14 @@
 // Thin DOM glue. Decisions live in popup-logic.js, orchestration in save.js.
 import { createClient, flattenCollections } from "./api.js";
 import { parseTags, cleanTitle } from "./metadata.js";
-import { capturePage } from "./capture.js";
-import { savePage, savePdf, MAX_PDF_BYTES } from "./save.js";
-import { classifyTab, errorMessage, libraryLink, assetFetchPolicy } from "./popup-logic.js";
+import { savePdf } from "./save.js";
+import { savePageFromTab, fetchPdfBlob } from "./pipeline.js";
+import { classifyTab, errorMessage, libraryLink } from "./popup-logic.js";
 
 const ext = globalThis.browser ?? globalThis.chrome;
 const $ = (id) => document.getElementById(id);
 
-const ASSET_TIMEOUT_MS = 30_000;
-const PDF_TIMEOUT_MS = 120_000;
-const ASSET_MAX_BYTES = 2_000_000; // same as snapshot.js per-asset limit; avoids downloading more
-
 const state = { tab: null, cls: null, serverUrl: "", client: null, tags: [], busy: false, lastRun: null };
-
-function tooLarge() {
-  return Object.assign(new Error("too large"), { code: "too_large" });
-}
-
-// Reads a response body, aborting as soon as it exceeds `max` bytes.
-async function readLimited(res, max) {
-  const len = Number(res.headers.get("content-length"));
-  if (Number.isFinite(len) && len > max) throw tooLarge();
-  if (!res.body) {
-    const buf = new Uint8Array(await res.arrayBuffer());
-    if (buf.length > max) throw tooLarge();
-    return [buf];
-  }
-  const reader = res.body.getReader();
-  const chunks = [];
-  let total = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.length;
-    if (total > max) {
-      reader.cancel().catch(() => {});
-      throw tooLarge();
-    }
-    chunks.push(value);
-  }
-  return chunks;
-}
-
-async function fetchAsset(url) {
-  try {
-    const policy = assetFetchPolicy(state.tab?.url, url);
-    if (!policy.allow) return null;
-    const res = await fetch(url, { credentials: policy.credentials, signal: AbortSignal.timeout(ASSET_TIMEOUT_MS) });
-    if (!res.ok) return null;
-    const chunks = await readLimited(res, ASSET_MAX_BYTES);
-    const data = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0));
-    let o = 0;
-    for (const c of chunks) { data.set(c, o); o += c.length; }
-    return { data, type: res.headers.get("content-type") || "" };
-  } catch {
-    return null; // failed asset fetches never fail the save
-  }
-}
-
-async function fetchPdfBlob(url) {
-  const res = await fetch(url, { credentials: "include", signal: AbortSignal.timeout(PDF_TIMEOUT_MS) });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const chunks = await readLimited(res, MAX_PDF_BYTES);
-  return new Blob(chunks, { type: "application/pdf" });
-}
 
 // ---- small DOM helpers (never innerHTML with data)
 function el(tag, props = {}, ...kids) {
@@ -156,19 +100,8 @@ async function run(saveSnapshot, force = false) {
     let r;
     if (state.cls.kind === "pdf") {
       r = await savePdf({ client: state.client, tabUrl: tab.url, title: options.title || tab.title, fetchBlob: fetchPdfBlob, options });
-    } else if (saveSnapshot) {
-      const [inj] = await ext.scripting.executeScript({ target: { tabId: tab.id }, func: capturePage });
-      const cap = inj?.result;
-      if (!cap) throw new Error("The page could not be read.");
-      r = await savePage({
-        client: state.client, facts: { ...cap.facts, baseUrl: cap.baseUrl }, html: cap.html,
-        tabUrl: tab.url, options, fetchAsset,
-      });
     } else {
-      r = await savePage({
-        client: state.client, facts: { url: tab.url, title: options.title || tab.title, metas: [] },
-        html: undefined, tabUrl: tab.url, options, fetchAsset,
-      });
+      r = await savePageFromTab(tab, options, { ext, client: state.client });
     }
     showResult(r);
     try {
