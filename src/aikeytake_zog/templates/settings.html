@@ -8,6 +8,7 @@
   <button type="submit">Create token</button>
 </form>
 <pre id="new-token" hidden></pre>
+<div class="table-wrap">
 <table>
   <tr><th>Name</th><th>Scope</th><th>Created</th><th></th></tr>
   {% for t in tokens %}
@@ -15,4 +16,5 @@
       <td><button class="revoke" data-id="{{ t.id }}">Revoke</button></td></tr>
   {% else %}<tr><td colspan="4" class="muted">No tokens yet.</td></tr>{% endfor %}
 </table>
+</div>
 {% endblock %}

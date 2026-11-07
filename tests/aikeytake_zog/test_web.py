@@ -584,7 +584,7 @@ def test_static_urls_carry_content_hash(client):
     pages.append(client.get("/").text)
     for n, html in enumerate(pages):
         refs = _static_refs(html)
-        assert refs or n == 0  # login.html links no static files
+        assert refs  # login.html links the stylesheet too
         for ref in refs:
             m = re.fullmatch(r"/static/([\w.-]+)\?v=([0-9a-f]{10})", ref)
             assert m, ref
@@ -610,3 +610,41 @@ def test_static_responses_are_no_cache(client):
     r = client.get("/static/app.css")
     assert r.headers["cache-control"] == "no-cache"
     assert "content-security-policy" in r.headers
+
+
+# ---------- palette contrast (WCAG AA) ----------
+def _palette_blocks(css):
+    """(light tokens, dark tokens) parsed from the first :root block and the
+    :root block inside @media (prefers-color-scheme: dark)."""
+    import re
+
+    def tokens(body):
+        return {k: v.lower() for k, v in re.findall(r"(--[\w-]+)\s*:\s*(#[0-9a-fA-F]{6})\b", body)}
+
+    light = re.search(r"(?m)^:root\s*\{([^}]*)\}", css)
+    dark_media = re.search(r"@media\s*\(prefers-color-scheme:\s*dark\)\s*\{\s*:root[^{]*\{([^}]*)\}", css)
+    assert light and dark_media, "light :root block or dark-scheme :root block missing"
+    lt = tokens(light.group(1))
+    return lt, {**lt, **tokens(dark_media.group(1))}
+
+
+def _contrast(a, b):
+    def lum(h):
+        def ch(c):
+            c = int(h[c:c + 2], 16) / 255
+            return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+        return 0.2126 * ch(1) + 0.7152 * ch(3) + 0.0722 * ch(5)
+    hi, lo = sorted((lum(a), lum(b)), reverse=True)
+    return (hi + 0.05) / (lo + 0.05)
+
+
+def test_palette_meets_contrast(client):
+    css = client.get("/static/app.css").text
+    pairs = [("--fg", "--bg"), ("--fg", "--card"), ("--muted", "--bg"), ("--muted", "--card"),
+             ("--accent", "--bg"), ("--accent-fg", "--accent"), ("--danger", "--bg"),
+             ("--chip-fg", "--chip-bg")]
+    for theme, toks in zip(("light", "dark"), _palette_blocks(css)):
+        for fg, bg in pairs:
+            assert fg in toks and bg in toks, f"{theme}: {fg} or {bg} not a #rrggbb token"
+            ratio = _contrast(toks[fg], toks[bg])
+            assert ratio >= 4.5, f"{theme}: {fg} {toks[fg]} on {bg} {toks[bg]} = {ratio:.2f} < 4.5"

@@ -36,7 +36,7 @@
   <aside>
     <h2>Collections <button id="new-collection" class="linklike dark">+ new</button></h2>
     <ul class="tree">
-      <li><a href="/" {% if not collection %}class="active"{% endif %}>{{ 'All items' if not collection else '← all' }}</a></li>
+      <li><div class="leaf"><span class="coll-row"><a href="/" {% if not collection %}class="active"{% endif %}>All items</a></span></div></li>
       {% for c in collections %}{{ render_coll(c, collection) }}{% endfor %}
     </ul>
   </aside>
@@ -67,14 +67,20 @@
 </div>
 <div id="bulk" hidden>
   <span id="bulk-count"></span>
-  <input id="bulk-tag" placeholder="tag(s), comma-separated">
-  <button data-bulk="tag">Add tags</button>
-  <select id="bulk-collection">
-    {% for c in collections_flat %}<option value="{{ c.id }}">{{ c.path }}</option>{% endfor %}
-  </select>
-  <button data-bulk="move">Move to collection</button>
-  <input id="bulk-field-name" placeholder="field name">
-  <input id="bulk-field-value" placeholder="value">
-  <button data-bulk="field">Set field for all</button>
+  <span class="bulk-group">
+    <input id="bulk-tag" placeholder="tag(s), comma-separated" aria-label="Tags to add">
+    <button data-bulk="tag">Add tags</button>
+  </span>
+  <span class="bulk-group">
+    <select id="bulk-collection" aria-label="Collection">
+      {% for c in collections_flat %}<option value="{{ c.id }}">{{ c.path }}</option>{% endfor %}
+    </select>
+    <button data-bulk="move">Move to collection</button>
+  </span>
+  <span class="bulk-group">
+    <input id="bulk-field-name" placeholder="field name" aria-label="Field name">
+    <input id="bulk-field-value" placeholder="value" aria-label="Field value">
+    <button data-bulk="field">Set field for all</button>
+  </span>
 </div>
 {% endblock %}
