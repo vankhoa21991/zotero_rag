@@ -179,6 +179,15 @@ imposes **no request-size limit by default**. nginx does (1 MB) — you must add
   background extraction; it is designed for one user + a few agent tokens, not for
   public traffic.
 
+## Browser extension
+
+The `extension/` directory contains a Chrome/Firefox extension that saves the current page
+(self-contained snapshot), a PDF or a link through the token API. Create a write token
+(`aikeytake-zog create-token browser --scope write`), load it unpacked and paste the server URL
+and token into its options. See [extension/README.md](../extension/README.md). Tests:
+`cd extension && npm test`; end-to-end (temp data dir, real Chromium):
+`uv run --with playwright python extension/test/e2e/e2e.py <out_dir>`.
+
 ## UI check
 
 `scripts/ui_check.py` logs in with a real browser, screenshots the library, a nested

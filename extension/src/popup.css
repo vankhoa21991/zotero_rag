@@ -68,6 +68,6 @@ input:focus-visible, select:focus-visible, textarea:focus-visible, .btn:focus-vi
 
 #result { background: var(--ok-bg); border: 1px solid var(--accent); border-radius: 6px; padding: 10px; margin: 6px 0 10px; }
 .result-title { font-weight: 650; margin-bottom: 6px; }
-#warnings { margin: 0 0 8px; padding: 0 0 0 16px; color: var(--warn-fg); background: var(--warn-bg); border-radius: 4px; }
+#warnings { list-style: none; margin: 0 0 8px; padding: 0; color: var(--warn-fg); background: var(--warn-bg); border-radius: 4px; }
 #warnings:empty { display: none; }
-#warnings li { padding: 3px 4px; }
+#warnings li { padding: 4px 8px; }

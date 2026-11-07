@@ -18,6 +18,13 @@ snapshot text, and an idempotent importer that brings in your whole Zotero libra
 read-only. See [docs/aikeytake-zog.md](docs/aikeytake-zog.md) for install, import, re-import rules,
 backups, systemd/Docker and HTTPS.
 
+### Browser extension
+
+`extension/` holds a Chrome/Firefox extension that saves the current page (snapshot), a PDF or a
+link to an aikeytake-zog server. Install, privacy and limitations: [extension/README.md](extension/README.md).
+Dev checks: `cd extension && npm test` and
+`uv run --with playwright python extension/test/e2e/e2e.py <out_dir>`.
+
 ## Quick start
 
 ```bash
