@@ -48,6 +48,7 @@ function readTag(src, i) {
   // i is just after the tag name. Returns {attrs, end} or null when input ends inside the tag.
   const n = src.length;
   const attrs = [];
+  const seen = new Set();
   for (;;) {
     while (i < n && (WS.has(src[i]) || src[i] === "/")) i++;
     if (i >= n) return null;
@@ -73,7 +74,10 @@ function readTag(src, i) {
         value = src.slice(s, i);
       }
     }
-    if (!attrs.some((a) => a[0] === name)) attrs.push([name, decodeEntities(value)]);
+    if (!seen.has(name)) {
+      seen.add(name);
+      attrs.push([name, decodeEntities(value)]);
+    }
   }
 }
 
@@ -158,8 +162,14 @@ function tokenize(input) {
 
 // ---------------------------------------------------------------- urls
 
-const cleanUrl = (v) =>
-  v.replace(/^[\u0000- ]+/, "").replace(/[\u0000- ]+$/, "").replace(/[\t\n\r]/g, "");
+// Linear time: char-code scans instead of backtracking regexes.
+function cleanUrl(v) {
+  let a = 0;
+  let b = v.length;
+  while (a < b && v.charCodeAt(a) <= 0x20) a++;
+  while (b > a && v.charCodeAt(b - 1) <= 0x20) b--;
+  return v.slice(a, b).replace(/[\t\n\r]/g, "");
+}
 
 // Returns the cleaned URL if its scheme is acceptable, else null.
 function checkUrl(v, dataOk) {
@@ -204,6 +214,7 @@ function scanCss(css) {
   let i = 0;
   let importPending = false;
   const parens = [];
+  let imageSetDepth = 0; // running count of open image-set( parens
   let nextParenImageSet = false;
   const flush = () => {
     if (buf) parts.push(buf);
@@ -248,7 +259,7 @@ function scanCss(css) {
     } else if (c === '"' || c === "'") {
       const s = readString(c);
       if (!s) break;
-      if (!s.bad && (importPending || parens.some(Boolean))) {
+      if (!s.bad && (importPending || imageSetDepth > 0)) {
         flush();
         parts.push({ ref: s.value, kind: importPending ? "import" : "url" });
         importPending = false;
@@ -324,8 +335,11 @@ function scanCss(css) {
     } else {
       if (c === "(") {
         parens.push(nextParenImageSet);
+        if (nextParenImageSet) imageSetDepth++;
         nextParenImageSet = false;
-      } else if (c === ")") parens.pop();
+      } else if (c === ")") {
+        if (parens.pop()) imageSetDepth--;
+      }
       else if (c === ";" || c === "{") importPending = false;
       buf += c;
       i++;
@@ -366,7 +380,7 @@ export async function inlineCss(css, resolve, baseUrl) {
       } catch {
         r = null;
       }
-      out += urlTok(typeof r === "string" ? r : "");
+      out += urlTok(typeof r === "string" && (/^data:/i.test(r) || isHttp(r)) ? r : "");
     }
   }
   return out;
@@ -392,7 +406,7 @@ const safeStyleText = (css) => css.replace(/</g, "\\3c ");
 const DROP_TAGS = new Set([
   "script", "noscript", "iframe", "noembed", "noframes", "xmp", "plaintext", "base", "object", "embed",
   "applet", "param", "frame", "frameset", "portal", "set", "animate", "animatetransform", "animatemotion",
-  "template", "handler", "listener", "bgsound",
+  "template", "handler", "listener", "bgsound", "animatecolor", "discard", "fencedframe",
 ]);
 const URL_ATTRS = new Set([
   "href", "src", "xlink:href", "background", "poster", "data", "codebase", "cite", "longdesc", "manifest",
@@ -547,11 +561,17 @@ const CSP =
 
 export async function buildSnapshot({ html, baseUrl, fetchAsset, limits } = {}) {
   const lim = { ...DEFAULT_LIMITS, ...(limits || {}) };
+  // `skipped` lists every URL left as an absolute link: over a limit, failed or null fetches,
+  // non-image content for images, too-deep @import. Not only over-limit assets.
   const skipped = [];
+  const skippedSet = new Set();
   const cache = new Map();
   let used = 0;
   const skip = (u) => {
-    if (!skipped.includes(u)) skipped.push(u);
+    if (!skippedSet.has(u)) {
+      skippedSet.add(u);
+      skipped.push(u);
+    }
     return null;
   };
 

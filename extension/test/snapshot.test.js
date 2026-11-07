@@ -566,3 +566,43 @@ test("cdata and unquoted quote tricks cannot create tags or handlers", () => {
   assert.ok(!/<script/i.test(out));
   assert.ok(!/<[^>]* onclick/.test(out), out);
 });
+
+// ---- hostile-input timing (linear-time guarantees) ----
+
+test("hostile inputs are processed in linear time", () => {
+  const N = 1_500_000;
+  const shapes = {
+    spaces: `<a href="x${" ".repeat(N)}x">`,
+    attrs: "<a" + Array.from({ length: N / 8 }, (_, i) => " a" + i).join("") + ">",
+    parens: "<style>" + "(".repeat(N / 2) + "''".repeat(N / 4) + "</style>",
+    imageSetParens: "<style>a{b:image-set(" + "(".repeat(N / 4) + "''".repeat(N / 4) + "}</style>",
+  };
+  for (const [name, html] of Object.entries(shapes)) {
+    const t = Date.now();
+    stripActive(html);
+    assert.ok(Date.now() - t < 2000, `${name} took ${Date.now() - t} ms`);
+  }
+});
+
+test("many distinct skipped urls are processed in linear time", async () => {
+  const html = Array.from({ length: 60000 }, (_, i) => `<img src="/i${i}.png">`).join("");
+  const t = Date.now();
+  const r = await buildSnapshot({
+    html,
+    baseUrl: BASE,
+    fetchAsset: async () => ({ data: png(1000), type: "image/png" }),
+    limits: { perAssetBytes: 10, totalBytes: 1000 },
+  });
+  assert.equal(r.skipped.length, 60000);
+  assert.ok(Date.now() - t < 3000, `skipped took ${Date.now() - t} ms`);
+});
+
+test("inlineCss ignores resolver output that is not data or http(s)", async () => {
+  const out = await inlineCss("a{b:url(x.png)}", async () => "javascript:alert(1)", "https://x.example/");
+  assert.ok(!out.includes("javascript"));
+});
+
+test("newly denylisted svg/html elements are removed", () => {
+  const out = stripActive('<svg><animateColor/><discard/></svg><fencedframe src="http://x/"></fencedframe>');
+  assert.ok(!/animatecolor|discard|fencedframe/i.test(out));
+});
