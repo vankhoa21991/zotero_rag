@@ -114,8 +114,8 @@ document.querySelectorAll("[data-del-coll]").forEach((b) =>
   const list = document.getElementById("item-list");
   if (!toastEl || !list) return;
   const TOAST_KEY = "zog-toast", SCROLL_KEY = "zog-scroll";
-  const viewed = new URLSearchParams(location.search).get("collection");
-  const viewedId = viewed ? +viewed : null;
+  const viewedId = list.dataset.viewedCollection ? +list.dataset.viewedCollection : null;
+  const recursiveView = list.dataset.recursive === "1";
   let drag = null; // {kind: "items", ids} | {kind: "coll", id}
   let hover = null, expandTimer = null;
 
@@ -276,11 +276,12 @@ document.querySelectorAll("[data-del-coll]").forEach((b) =>
   }
   async function dropOnCollection(ids, t, shift) {
     const to = +t.dataset.collectionId, name = nameOf(t);
-    if (viewedId === to && !document.querySelector('input[name="recursive"][type=checkbox]:checked')) {
+    if (viewedId === to && !recursiveView) {
       showToast(`Already in ${name}.`);
       return;
     }
-    const moving = shift && viewedId !== null && viewedId !== to;
+    // a recursive view also lists items living only in sub-collections: nothing to remove from it
+    const moving = shift && viewedId !== null && !recursiveView && viewedId !== to;
     const j = moving
       ? await api("/api/collections/move-items", { method: "POST", body: JSON.stringify({ item_ids: ids, from_id: viewedId, to_id: to }) })
       : await api(`/api/collections/${to}/items`, { method: "POST", body: JSON.stringify({ item_ids: ids }) });

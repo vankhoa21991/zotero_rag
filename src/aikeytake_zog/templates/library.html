@@ -46,7 +46,7 @@
     </ul>
     <p class="muted dnd-hint">Drag items onto a collection to add them; hold Shift to move. Drag a collection onto another to nest it.</p>
   </aside>
-  <section id="item-list">
+  <section id="item-list" data-viewed-collection="{{ collection or '' }}" data-recursive="{{ 1 if recursive else 0 }}">
     {% for it in rows %}
     <div class="item-row" draggable="true" data-item-id="{{ it.id }}">
       <label class="sel"><input type="checkbox" value="{{ it.id }}"></label>

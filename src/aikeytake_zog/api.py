@@ -390,6 +390,9 @@ def build_router() -> APIRouter:
                 bid = collections.move(conn, collection_id, body.parent_id, actor["actor"], batch_id=bid)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
+        if bid is not None and not conn.execute("SELECT 1 FROM changes WHERE batch_id=?", (bid,)).fetchone():
+            conn.execute("DELETE FROM batches WHERE id=?", (bid,))  # no-op: leave no empty batch
+            bid = None
         conn.commit()
         return {"ok": True, "batch": bid}
 

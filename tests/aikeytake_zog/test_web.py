@@ -731,6 +731,33 @@ def test_patch_collection_parent_returns_batch_that_reverts(client):
     r = client.patch(f"/api/collections/{b}", json={"parent_id": a})
     assert r.status_code == 200
     bid = r.json()["batch"]
+    top = lambda: {c["id"] for c in client.get("/api/collections").json()}
+    assert b not in top()  # nested under A
     assert client.post(f"/api/batches/{bid}/revert").status_code == 200
-    tree = {c["id"]: c for c in client.get("/api/collections").json()}
-    assert b in tree  # back at top level
+    assert b in top()  # back at top level
+
+
+def test_patch_collection_name_and_parent_one_batch_and_noop_leaves_none(client):
+    a = client.post("/api/collections", json={"name": "A"}).json()["id"]
+    b = client.post("/api/collections", json={"name": "B"}).json()["id"]
+    n0 = len(client.get("/api/batches?limit=200").json())
+    bid = client.patch(f"/api/collections/{b}", json={"name": "B2", "parent_id": a}).json()["batch"]
+    assert len(client.get("/api/batches?limit=200").json()) == n0 + 1
+    assert client.post(f"/api/batches/{bid}/revert").status_code == 200
+    flat = {c["id"]: c for c in client.get("/api/collections").json()}
+    assert flat[b]["name"] == "B"
+    # no-op reparent: no batch left behind
+    n1 = len(client.get("/api/batches?limit=200").json())
+    r = client.patch(f"/api/collections/{b}", json={"parent_id": None})
+    assert r.status_code == 200 and r.json()["batch"] is None
+    assert len(client.get("/api/batches?limit=200").json()) == n1
+
+
+def test_library_exposes_viewed_collection_and_recursive_state(client):
+    c = client.post("/api/collections", json={"name": "V"}).json()["id"]
+    client.post("/login", data={"password": "test-pass"}, follow_redirects=False)
+    on = client.get(f"/?collection={c}").text
+    assert f'data-viewed-collection="{c}"' in on and 'data-recursive="1"' in on
+    off = client.get(f"/?collection={c}&recursive=0").text
+    assert f'data-viewed-collection="{c}"' in off and 'data-recursive="0"' in off
+    assert 'data-viewed-collection=""' in client.get("/").text
