@@ -234,3 +234,10 @@ def test_library_sidebar_nests_children(client):
     assert f'title="Parent / {long_name}"' in page
     # bulk move select shows the path
     assert f">Parent / {long_name}</option>" in page
+
+
+def test_collection_actions_always_visible_on_touch(client):
+    css = client.get("/static/app.css").text
+    assert "(hover: none)" in css
+    rule = css.split("(hover: none)")[1].split("}")[0]
+    assert "coll-more" in rule or "coll-actions" in css.split("(hover: none)")[1][:300]

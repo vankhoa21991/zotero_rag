@@ -104,7 +104,7 @@ aside { min-width: 0; }
 .coll-row:hover .coll-more, .coll-row:focus-within .coll-more { display: none; }
 .coll-row:hover .coll-actions button, .coll-row:focus-within .coll-actions button { position: static; width: auto; height: auto; overflow: visible; clip-path: none; padding: 0.1rem 0.4rem; border: 1px solid var(--border); }
 .coll-row:hover .coll-actions button.danger, .coll-row:focus-within .coll-actions button.danger { border-color: var(--danger); }
-@media (max-width: 47.99rem) {
+@media (max-width: 47.99rem), (hover: none) {
   .coll-more { display: none; }
   .coll-actions button { position: static; width: auto; height: auto; overflow: visible; clip-path: none; padding: 0.1rem 0.4rem; border: 1px solid var(--border); }
   .coll-actions button.danger { border-color: var(--danger); }
