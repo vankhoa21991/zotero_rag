@@ -178,3 +178,24 @@ imposes **no request-size limit by default**. nginx does (1 MB) — you must add
 - The server keeps one SQLite connection per request and a small thread pool for
   background extraction; it is designed for one user + a few agent tokens, not for
   public traffic.
+
+## UI check
+
+`scripts/ui_check.py` logs in with a real browser, screenshots the library, a nested
+collection, a PDF item, a URL item and the history page (1400px and 375px, plus a dark-scheme
+overflow check) and fails on horizontal overflow, console errors, a visible `#bulk` bar before
+selection, an empty library, or a PDF link that does not return `application/pdf`. Playwright is
+not a project dependency. Because it logs in, run it only against a **copy** of the data, never
+the live data dir:
+
+```bash
+D=$(mktemp -d)
+cp ~/.local/share/aikeytake-zog/aikeytake-zog.db* "$D"/   # copy the database (db file name as in your data dir)
+ln -s ~/.local/share/aikeytake-zog/files "$D/files"
+AIKEYTAKE_ZOG_DATA_DIR="$D" aikeytake-zog set-password           # throwaway password
+AIKEYTAKE_ZOG_DATA_DIR="$D" aikeytake-zog serve --port 8399 &
+uv run --with playwright python scripts/ui_check.py http://127.0.0.1:8399 <password> ./ui-shots
+```
+
+One PASS/FAIL line is printed per check; the exit code is non-zero on any failure.
+(First run needs `playwright install chromium`.)
