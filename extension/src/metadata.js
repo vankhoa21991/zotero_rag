@@ -3,9 +3,14 @@
 const MAX_TITLE = 300;
 const MAX_TAG = 50;
 
+const ENTITIES = { "&lt;": "<", "&gt;": ">", "&quot;": '"', "&#39;": "'", "&amp;": "&" };
+
+function decodeEntities(s) {
+  return s.replace(/&(lt|gt|quot|#39|amp);/g, (m) => ENTITIES[m]);
+}
+
 export function cleanTitle(s) {
-  return String(s ?? "")
-    .replace(/<[^>]*>/g, " ")
+  return decodeEntities(String(s ?? "").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim())
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, MAX_TITLE)
@@ -32,13 +37,13 @@ function normalizeDate(raw) {
   let m = /^(\d{4})(?:[-/.](\d{1,2})(?:[-/.](\d{1,2}))?)?(?:[T\s].*)?$/.exec(s);
   if (m) {
     const [, y, mo, d] = m;
-    if (mo === undefined) return y;
-    const mi = Number(mo), di = d === undefined ? 1 : Number(d);
+    if (d === undefined) return y; // year-month is reduced to the year
+    const mi = Number(mo), di = Number(d);
     if (mi < 1 || mi > 12 || di < 1) return undefined;
     const dim = new Date(Date.UTC(Number(y), mi, 0)).getUTCDate();
     if (di > dim) return undefined;
     const mm = String(mi).padStart(2, "0");
-    return d === undefined ? `${y}-${mm}` : `${y}-${mm}-${String(di).padStart(2, "0")}`;
+    return `${y}-${mm}-${String(di).padStart(2, "0")}`;
   }
   if (/[a-z]/i.test(s)) {
     const t = new Date(s);
@@ -106,12 +111,11 @@ export function buildItemPayload(facts) {
     if (doi) out.doi = doi;
   }
 
-  const fields = {};
+  // Custom fields are flat top-level keys: the server rejects nested objects.
   const site = cleanTitle(first("og:site_name") ?? "");
-  if (site) fields.website = site;
+  if (site) out.website = site;
   const lang = String(facts?.lang ?? "").trim();
-  if (lang) fields.language = lang;
-  if (Object.keys(fields).length) out.fields = fields;
+  if (lang) out.language = lang;
 
   return out;
 }

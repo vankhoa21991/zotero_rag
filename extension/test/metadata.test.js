@@ -28,7 +28,9 @@ test("citation_* page becomes a journalArticle with authors and doi", () => {
   assert.equal(p.doi, "10.1000/xyz");
   assert.equal(p.date, "2023-05-04");
   assert.equal(p.abstract, "An abstract.");
-  assert.deepEqual(p.fields, { website: "J Example", language: "en" });
+  assert.equal(p.website, "J Example");
+  assert.equal(p.language, "en");
+  assert.equal(p.fields, undefined);
 });
 
 test("plain blog page is a webpage with og title; host fallback", () => {
@@ -44,19 +46,22 @@ test("plain blog page is a webpage with og title; host fallback", () => {
   const q = buildItemPayload({ url: "https://blog.example.com/x", title: "  ", metas: [] });
   assert.equal(q.title, "blog.example.com");
   assert.equal(q.creators, undefined);
-  assert.equal(q.fields, undefined);
+  assert.equal(q.website, undefined);
+  assert.equal(q.language, undefined);
 });
 
 test("title is cleaned and truncated", () => {
   assert.equal(cleanTitle("a <b>bold</b>\n  title\t!"), "a bold title !");
   assert.equal(cleanTitle("x".repeat(500)).length, 300);
   assert.equal(cleanTitle(null), "");
+  assert.equal(cleanTitle("Tom &amp; Jerry &lt;3 &quot;x&quot; &#39;y&#39;"), "Tom & Jerry <3 \"x\" 'y'");
 });
 
 test("invalid date omitted; year only kept", () => {
   const f = (d) => buildItemPayload({ url: "https://a.b/", title: "t", metas: [m("date", d)] }).date;
   assert.equal(f("not a date"), undefined);
   assert.equal(f("2021"), "2021");
+  assert.equal(f("2021-05"), "2021");
   assert.equal(f("2021-13-45"), undefined);
   assert.equal(f("2020-02-03T10:00:00Z"), "2020-02-03");
 });

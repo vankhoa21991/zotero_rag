@@ -57,7 +57,16 @@ test("round trip two files, non-ASCII name, empty file", () => {
 test("rejects bad input", () => {
   assert.throws(() => createZip([{ name: "", data: new Uint8Array(1) }]), /name/i);
   assert.throws(() => createZip([{ name: "a", data: "str" }]), /Uint8Array/);
-  assert.throws(() => createZip([{ name: "a", data: { length: 0xffffffff } }]), /Uint8Array|too large/i);
+  const big = new (class extends Uint8Array { get length() { return 0x7fffffff; } })(1);
+  assert.throws(() => createZip([{ name: "a", data: big }, { name: "b", data: big }]), /too large/i);
+  assert.throws(() => createZip([{ name: "a", data: new Uint8Array(10) }], 50), /too large/i);
+  for (const bad of ["/abs", "a/../b", "..", "a\\b", "a\0b"]) {
+    assert.throws(() => createZip([{ name: bad, data: new Uint8Array(0) }]), /unsafe/i, bad);
+  }
+  assert.throws(
+    () => createZip([{ name: "a", data: new Uint8Array(0) }, { name: "a", data: new Uint8Array(0) }]),
+    /duplicate/i,
+  );
   assert.throws(() => createZip(new Array(70000).fill({ name: "a", data: new Uint8Array(0) })), /too many/i);
 });
 

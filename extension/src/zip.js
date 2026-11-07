@@ -23,19 +23,25 @@ export function crc32(bytes) {
   return (c ^ 0xffffffff) >>> 0;
 }
 
-export function createZip(files) {
+export function createZip(files, maxTotal = MAX_TOTAL) {
   if (!Array.isArray(files)) throw new TypeError("files must be an array");
   if (files.length > MAX_ENTRIES) throw new RangeError(`Too many files for a zip (${files.length}).`);
   const enc = new TextEncoder();
   const entries = [];
+  const names = new Set();
   let total = 22;
   for (const f of files) {
     if (!f || typeof f.name !== "string" || !f.name) throw new TypeError("Each file needs a non-empty name.");
+    if (f.name.startsWith("/") || /[\\\0]/.test(f.name) || f.name.split("/").includes("..")) {
+      throw new Error(`Unsafe file name in zip: ${JSON.stringify(f.name.slice(0, 80))}`);
+    }
+    if (names.has(f.name)) throw new Error(`Duplicate file name in zip: ${JSON.stringify(f.name.slice(0, 80))}`);
+    names.add(f.name);
     if (!(f.data instanceof Uint8Array)) throw new TypeError(`File "${f.name}": data must be a Uint8Array.`);
     const name = enc.encode(f.name);
     if (name.length > 0xffff) throw new RangeError(`File name too long: ${f.name.slice(0, 50)}...`);
     total += 30 + name.length + 46 + name.length + f.data.length;
-    if (total > MAX_TOTAL) throw new RangeError("Snapshot too large to zip (over 4 GiB).");
+    if (total > maxTotal) throw new RangeError("Snapshot too large to zip (over 4 GiB).");
     entries.push({ name, data: f.data, crc: crc32(f.data) });
   }
   const out = new Uint8Array(total);
