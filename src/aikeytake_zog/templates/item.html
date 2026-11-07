@@ -45,10 +45,10 @@
 <h2>Collections</h2>
 <p class="coll-checks">
   {% for c in all_collections %}
-  <label style="padding-left: {{ c.depth * 1.25 }}em">
+  <label>
     <input type="checkbox" class="coll" value="{{ c.id }}"
       {{ 'checked' if c.id in item.collections | map(attribute='id') | list else '' }}>
-    {{ c.name }}
+    {{ c.path }}
   </label>
   {% endfor %}
   {% if not all_collections %}<span class="muted">no collections — create one from the library page</span>{% endif %}

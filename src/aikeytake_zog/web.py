@@ -38,6 +38,17 @@ def _session_ok(request: Request, conn) -> bool:
     )
 
 
+def _ancestor_ids(flat: list[dict], active: int | None) -> list[int]:
+    """Ids of every ancestor of the active collection (to render expanded)."""
+    parents = {c["id"]: c["parent_id"] for c in flat}
+    out: list[int] = []
+    cur = parents.get(active) if active is not None else None
+    while cur is not None and cur not in out:
+        out.append(cur)
+        cur = parents.get(cur)
+    return out
+
+
 def web_routes(app) -> None:
     @app.middleware("http")
     async def csp_headers(request: Request, call_next):
@@ -117,6 +128,7 @@ def web_routes(app) -> None:
         gate = _gate(request, conn)
         if gate is not None:
             return gate
+        flat = collections.tree_flat(conn)
         page = max(1, page)
         limit, offset = 100, (page - 1) * 100
         if q:
@@ -141,7 +153,9 @@ def web_routes(app) -> None:
                 "page": page,
                 "has_next": len(rows) == limit,
                 "collections": collections.tree(conn),
-                "collections_flat": collections.tree_flat(conn),
+                "collections_flat": flat,
+                "coll_paths": {c["id"]: c["path"] for c in flat},
+                "open_ids": _ancestor_ids(flat, collection),
                 "tags": tags.all(conn),
                 "types": [r["type"] for r in conn.execute("SELECT DISTINCT type FROM items ORDER BY type")],
             },

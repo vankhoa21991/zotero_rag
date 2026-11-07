@@ -89,19 +89,24 @@ def delete(conn: sqlite3.Connection, collection_id: int, actor: str = "user", ba
 
 
 def tree_flat(conn: sqlite3.Connection) -> list[dict]:
-    """All collections as a flat list (id, name, depth), ordered by tree walk."""
+    """All collections as a flat list, ordered by tree walk.
+
+    Keys: id, name, depth, parent_id, path (names joined with " / ").
+    """
     out: list[dict] = []
 
-    def walk(parent_id: int | None, depth: int) -> None:
+    def walk(parent_id: int | None, depth: int, prefix: str) -> None:
         rows = conn.execute(
             "SELECT id, name FROM collections WHERE parent_id IS ? ORDER BY name",
             (parent_id,),
         ).fetchall()
         for r in rows:
-            out.append({"id": r["id"], "name": r["name"], "depth": depth})
-            walk(r["id"], depth + 1)
+            path = prefix + r["name"]
+            out.append({"id": r["id"], "name": r["name"], "depth": depth,
+                        "parent_id": parent_id, "path": path})
+            walk(r["id"], depth + 1, path + " / ")
 
-    walk(None, 0)
+    walk(None, 0, "")
     return out
 
 

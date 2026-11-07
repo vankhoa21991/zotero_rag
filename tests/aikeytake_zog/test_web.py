@@ -214,3 +214,23 @@ def test_library_page_hides_bulk_bar_until_selection(client):
     assert 'id="bulk" hidden' in page.text
     css = client.get("/static/app.css")
     assert "[hidden]" in css.text
+
+
+def test_library_sidebar_nests_children(client):
+    import re
+    parent = client.post("/api/collections", json={"name": "Parent"}).json()["id"]
+    long_name = "A very long child collection name " * 3
+    child = client.post("/api/collections", json={"name": long_name, "parent_id": parent}).json()["id"]
+    client.post("/login", data={"password": "test-pass"}, follow_redirects=False)
+    page = client.get(f"/?collection={child}").text
+    assert long_name in page and "…" not in page.split("<aside>")[1].split("</aside>")[0]
+    # child <li> is inside a nested <ul class="tree"> inside the parent's <li>
+    m = re.search(r'<ul class="tree">\s*<li[^>]*>.*?<ul class="tree">\s*<li[^>]*>.*?' + re.escape(long_name), page, re.S)
+    assert m
+    # ancestors of the active collection are expanded; active one is marked
+    assert "<details open" in page
+    assert 'class="active" aria-current="page"' in page
+    assert f'data-rename-coll="{child}"' in page and f'data-del-coll="{child}"' in page
+    assert f'title="Parent / {long_name}"' in page
+    # bulk move select shows the path
+    assert f">Parent / {long_name}</option>" in page

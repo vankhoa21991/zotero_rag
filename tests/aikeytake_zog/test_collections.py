@@ -129,3 +129,15 @@ def test_move_items_between_collections_and_revert(conn):
     conn.commit()
     assert [r["id"] for r in items.list_items(conn, collection_id=a)] == [iid]
     assert items.list_items(conn, collection_id=b) == []
+
+
+def test_tree_flat_has_full_path(conn):
+    a = collections.create(conn, "A", actor="user")
+    b = collections.create(conn, "B", parent_id=a, actor="user")
+    c = collections.create(conn, "C", parent_id=b, actor="user")
+    conn.commit()
+    rows = {r["id"]: r for r in collections.tree_flat(conn)}
+    assert rows[a]["path"] == "A"
+    assert rows[b]["path"] == "A / B"
+    assert rows[c]["path"] == "A / B / C"
+    assert rows[c]["depth"] == 2 and rows[c]["parent_id"] == b
