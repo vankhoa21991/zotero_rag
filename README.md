@@ -1,5 +1,39 @@
 # zotero-rag
 
+Two things live in this repository:
+
+1. **aikeytake-zog** — your own self-hosted Zotero alternative: a small server (web app + API) that
+   holds your items, PDFs and web snapshots, imports your whole Zotero library, and comes with a
+   Chrome/Firefox extension for saving pages.
+2. **zrag** — the local "ask a research question, get back the relevant papers" search over your
+   library (summaries, embeddings, rerank). Described further down.
+
+## Start here: run aikeytake-zog
+
+You need [`uv`](https://docs.astral.sh/uv/). From this folder:
+
+```bash
+uv run --extra server --extra pdf aikeytake-zog set-password   # choose the web password
+uv run --extra server --extra pdf aikeytake-zog serve          # then open http://127.0.0.1:8321
+```
+
+Then import Zotero, install the extension, run it in the background and reach it from other
+machines — all in the step-by-step **[tutorial: docs/running.md](docs/running.md)**.
+
+| I want to… | Read |
+|---|---|
+| install, start, import Zotero, use the app | [docs/running.md](docs/running.md) |
+| run it as a service, use it over a VPN, move or back up my data | [docs/running.md](docs/running.md) sections 7–9 |
+| save web pages and PDFs from my browser | [extension/README.md](extension/README.md) |
+| import rules, backups, Docker, HTTPS details | [docs/aikeytake-zog.md](docs/aikeytake-zog.md) |
+| what is planned next (agents, reorganization proposals) | [docs/superpowers/plans/2026-11-07-agent-connection-and-reorganization.md](docs/superpowers/plans/2026-11-07-agent-connection-and-reorganization.md) |
+
+What the web app does today: search (titles, notes, PDF text), collections with drag-and-drop
+(with undo), tags, notes, sorting by date added, a History page that can revert any change,
+scoped API tokens, and a read-only Zotero importer you can re-run safely.
+
+## zrag — search your library with an agent
+
 Ask an AI agent a research question and get back the relevant papers and web pages from
 your local Zotero library, with links. Everything runs on this machine: Zotero is read
 through the `zot` CLI (from `zotero-agent`), summaries and embeddings come from local

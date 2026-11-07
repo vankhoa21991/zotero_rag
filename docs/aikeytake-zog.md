@@ -1,5 +1,7 @@
 # aikeytake-zog — self-hosted library server
 
+> New here? Start with the step-by-step [tutorial](running.md). This page is the reference.
+
 `aikeytake-zog` is a small self-hosted server for your personal research library: items,
 collections, tags, notes, annotations and attachment files (PDFs, web snapshots) in one
 SQLite database plus a content-addressed file store, with a web UI, a JSON API for AI
