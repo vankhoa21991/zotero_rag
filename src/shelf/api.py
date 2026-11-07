@@ -12,6 +12,7 @@ import io
 import logging
 import sqlite3
 import threading
+from concurrent.futures import ThreadPoolExecutor
 import zipfile
 from pathlib import Path
 from urllib.parse import quote
@@ -87,8 +88,21 @@ def _require_session(actor: dict) -> None:
         raise HTTPException(status_code=403, detail="session login required")
 
 
+_extract_pool: ThreadPoolExecutor | None = None
+_extract_lock = threading.Lock()
+
+
 def schedule_extraction(settings: Settings, attachment_id: int) -> None:
-    """Extract attachment text in a background thread (own connection, commits itself)."""
+    """Queue text extraction on one background worker (own connection, commits itself).
+
+    A single worker keeps a bulk import from starting one thread per upload
+    and competing with the import's own writes.
+    """
+    global _extract_pool
+    with _extract_lock:
+        if _extract_pool is None:
+            _extract_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="extract")
+        pool = _extract_pool
 
     def job():
         conn = db.connect(settings.db_path)
@@ -99,7 +113,7 @@ def schedule_extraction(settings: Settings, attachment_id: int) -> None:
         finally:
             conn.close()
 
-    threading.Thread(target=job, daemon=True, name=f"extract-{attachment_id}").start()
+    pool.submit(job)
 
 
 class BulkUpdateIn(BaseModel):

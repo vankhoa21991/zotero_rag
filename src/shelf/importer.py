@@ -47,7 +47,7 @@ def annotation_html(a: ZAnnotation) -> str:
     """Render a Zotero annotation: page label, quoted text, comment, colour.
 
     The body is later sanitized by `notes.sanitize`; the colour is rendered
-    as a small swatch (span+style is on the sanitizer allow-list). Accepts a
+    as a small swatch (span+style survives `sanitize(annotation=True)` only). Accepts a
     ZAnnotation or the plain dict that arrives in the import payload.
     """
     if isinstance(a, dict):
@@ -244,7 +244,7 @@ def import_item(conn: sqlite3.Connection, payload: dict, actor: str = IMPORT_ACT
         note_plans.append((n["zotero_key"], body, "note", _plan_note(conn, iid, n["zotero_key"], body, "note")))
     ann_plans = []
     for a in payload.get("annotations") or []:
-        body = notes.sanitize(annotation_html(a))
+        body = notes.sanitize(annotation_html(a), annotation=True)
         ann_plans.append((a["zotero_key"], body, "annotation", _plan_note(conn, iid, a["zotero_key"], body, "annotation")))
 
     # attachment metadata (file bytes come via PUT /api/import/attachment/<key>)
@@ -282,20 +282,23 @@ def import_item(conn: sqlite3.Connection, payload: dict, actor: str = IMPORT_ACT
     for att, plan in att_plans:
         status, data_ = plan
         if status == "new":
-            conn.execute(
+            row_ = {
+                "item_id": iid,
+                "kind": att.get("kind") or "other",
+                "filename": att.get("filename"),
+                "ext": _attachment_ext(att.get("kind") or "other", att.get("filename")),
+                "url": att.get("url"),
+                "missing": 1 if att.get("missing") else 0,
+                "main_file": att.get("main_file"),
+                "zotero_key": att["zotero_key"],
+            }
+            cur = conn.execute(
                 "INSERT INTO attachments(item_id, kind, filename, ext, url, missing,"
-                " main_file, zotero_key) VALUES(?,?,?,?,?,?,?,?)",
-                (
-                    iid,
-                    att.get("kind") or "other",
-                    att.get("filename"),
-                    _attachment_ext(att.get("kind") or "other", att.get("filename")),
-                    att.get("url"),
-                    1 if att.get("missing") else 0,
-                    att.get("main_file"),
-                    att["zotero_key"],
-                ),
+                " main_file, zotero_key) VALUES(:item_id,:kind,:filename,:ext,:url,"
+                ":missing,:main_file,:zotero_key)",
+                row_,
             )
+            changelog.record(conn, batch_id, "attachment", cur.lastrowid, "created", None, row_)
         elif status == "update":
             for col, val in data_.items():
                 conn.execute(f"UPDATE attachments SET {col}=? WHERE zotero_key=?", (val, att["zotero_key"]))
@@ -309,6 +312,30 @@ def import_item(conn: sqlite3.Connection, payload: dict, actor: str = IMPORT_ACT
         "notes_added": notes_added,
         "annotations_added": anns_added,
     }
+
+
+def _apply_attachment_change(conn: sqlite3.Connection, entity_id: str, field: str, value) -> None:
+    """Revert (value None) deletes the attachment row; redo re-creates it.
+
+    The stored file stays in the content-addressed store."""
+    if field != "created":
+        return
+    if value is None:
+        conn.execute("DELETE FROM attachment_text WHERE attachment_id=?", (int(entity_id),))
+        conn.execute("DELETE FROM attachments WHERE id=?", (int(entity_id),))
+    else:
+        cols = list(value)
+        conn.execute(
+            f"INSERT OR IGNORE INTO attachments(id, {','.join(cols)})"
+            f" VALUES(?,{','.join('?' * len(cols))})",
+            [int(entity_id), *value.values()],
+        )
+    item_id = (value or {}).get("item_id")
+    if item_id is not None:
+        search.reindex_item(conn, item_id)
+
+
+changelog.register_applier("attachment", _apply_attachment_change)
 
 
 def import_collections(conn: sqlite3.Connection, colls: list[dict], actor: str = IMPORT_ACTOR) -> dict:

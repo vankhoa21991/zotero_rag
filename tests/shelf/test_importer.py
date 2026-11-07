@@ -410,3 +410,53 @@ def test_import_endpoints_require_write_token(env, tmp_path):
     # unknown attachment key: 404 even with a write token
     w = _h(env)
     assert c.put("/api/import/attachment/NOPE", content=b"x", headers=w).status_code == 404
+
+
+def test_revert_import_batch_removes_its_attachments(env):
+    from shelf import changelog
+
+    _run_import(env)
+    conn = _shelf_conn(env)
+    try:
+        before = conn.execute("SELECT COUNT(*) FROM attachments").fetchone()[0]
+        assert before == 7
+        bid = conn.execute(
+            "SELECT DISTINCT batch_id FROM changes WHERE entity='attachment' LIMIT 1"
+        ).fetchone()[0]
+        n = conn.execute(
+            "SELECT COUNT(*) FROM changes WHERE entity='attachment' AND batch_id=?", (bid,)
+        ).fetchone()[0]
+        changelog.revert_batch(conn, bid)
+        conn.commit()
+        assert conn.execute("SELECT COUNT(*) FROM attachments").fetchone()[0] == before - n
+    finally:
+        conn.close()
+
+
+def test_style_survives_only_for_annotations():
+    from shelf import notes
+
+    html = '<span style="color:red">x</span>'
+    assert "style" not in notes.sanitize(html)
+    assert "style" in notes.sanitize(html, annotation=True)
+
+
+def test_extraction_uses_a_single_worker_and_connections_wait_for_locks(env):
+    import threading
+
+    from shelf import api
+
+    assert shelf_db.connect(env["settings"].db_path).execute("PRAGMA busy_timeout").fetchone()[0] >= 30000
+    _run_import(env)
+    api._extract_pool.submit(lambda: None).result()  # single worker: queue drained
+    workers = [t for t in threading.enumerate() if t.name.startswith("extract")]
+    assert len(workers) <= 1
+    conn = _shelf_conn(env)
+    try:
+        assert conn.execute(
+            "SELECT COUNT(*) FROM attachments WHERE kind IN ('pdf','snapshot') AND sha256 IS NOT NULL AND text_extracted=0"
+        ).fetchone()[0] == conn.execute(
+            "SELECT COUNT(*) FROM settings WHERE key LIKE 'extract_error:%'"
+        ).fetchone()[0]  # whatever is not extracted has a recorded error
+    finally:
+        conn.close()

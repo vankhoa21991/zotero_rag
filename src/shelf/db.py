@@ -109,7 +109,9 @@ CREATE TABLE IF NOT EXISTS attachment_text(
 
 
 def connect(db_path: Path | str, check_same_thread: bool = False) -> sqlite3.Connection:
-    conn = sqlite3.connect(str(db_path), check_same_thread=check_same_thread)
+    conn = sqlite3.connect(
+        str(db_path), check_same_thread=check_same_thread, timeout=30.0
+    )  # wait for a writer rather than failing with 'database is locked'
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
