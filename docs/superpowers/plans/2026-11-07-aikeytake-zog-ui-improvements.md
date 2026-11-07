@@ -67,49 +67,54 @@
 - [ ] **Step 4: Run tests, expect PASS.**
 - [ ] **Step 5: Commit** `feat(aikeytake-zog): nested, collapsible collection sidebar with full names`.
 
-### Task 3: Open-URL button
+### Task 3: Open buttons — source URL and PDF
+
+There is no PDF viewer in the app, and none is needed: the browser's built-in viewer (Chrome, Firefox pdf.js) opens a PDF served inline in a new tab. This task adds the server route that serves it inline and an "Open PDF" button next to the "Open URL" button.
 
 **Files:**
-- Modify: `src/aikeytake_zog/web.py` (register Jinja filter `safe_url`), `src/aikeytake_zog/templates/library.html`, `src/aikeytake_zog/templates/item.html`, `src/aikeytake_zog/static/app.css`
-- Test: `tests/aikeytake_zog/test_web.py`
+- Modify: `src/aikeytake_zog/web.py` (register Jinja filter `safe_url`), `src/aikeytake_zog/api.py` (`GET /files/{id}?inline=1`), `src/aikeytake_zog/items.py` (`list_items` rows gain `pdf_id`), `src/aikeytake_zog/templates/library.html`, `src/aikeytake_zog/templates/item.html`, `src/aikeytake_zog/static/app.css`
+- Test: `tests/aikeytake_zog/test_web.py`, `tests/aikeytake_zog/test_api.py`, `tests/aikeytake_zog/test_items.py`
 
 **Interfaces:**
 - Produces: `safe_url(value) -> str | None` returns the URL only when its scheme is `http` or `https`, else `None`.
+- Produces: `GET /api/files/{id}?inline=1` → for `kind='pdf'` attachments: 200, `Content-Type: application/pdf`, `Content-Disposition: inline; filename="..."`, `X-Content-Type-Options: nosniff`, `Content-Security-Policy: sandbox`; any other kind ignores the flag and downloads as today. Same auth as every other route (session cookie or token); a missing file keeps the existing 404 with `X-Missing`.
+- Produces: each row from `items.list_items` gains `pdf_id: int | None` = id of the item's first PDF attachment that has a stored file (`sha256` set, `missing = 0`), else `None`. Task 4 extends the same rows further.
 
-- [ ] **Step 1: Failing tests:** `test_item_page_has_open_url_button` (item with `https://example.com/a` → HTML contains `href="https://example.com/a"`, `target="_blank"`, `rel="noopener noreferrer"`); `test_javascript_url_gets_no_link` (url `javascript:alert(1)` → no `href="javascript:`); `test_library_row_has_open_icon_for_items_with_url`; `test_no_button_when_no_url`.
+- [ ] **Step 1: Failing tests:**
+  - open URL: `test_item_page_has_open_url_button` (item with `https://example.com/a` → HTML contains `href="https://example.com/a"`, `target="_blank"`, `rel="noopener noreferrer"`); `test_javascript_url_gets_no_link` (url `javascript:alert(1)` → no `href="javascript:`); `test_library_row_has_open_icon_for_items_with_url`; `test_no_button_when_no_url`.
+  - open PDF: `test_pdf_inline_flag_sets_inline_headers` (the four headers above, body is the stored bytes); `test_inline_flag_ignored_for_non_pdf`; `test_inline_requires_auth` (401 without cookie/token); `test_list_items_pdf_id_first_stored_pdf` (item with a missing-file PDF and a stored PDF → `pdf_id` is the stored one; item with only a snapshot → `None`); `test_library_row_has_open_pdf_link` (`href="/api/files/<id>?inline=1"`, `target="_blank"`); `test_item_page_has_open_pdf_button_per_pdf`; `test_no_pdf_button_when_file_missing`.
 - [ ] **Step 2: Run, expect FAIL.**
-- [ ] **Step 3: Implement** the filter and add: a primary "Open ↗" button in the item page header next to the title (shows the domain, e.g. `Open nature.com ↗`), and a small `↗` icon link at the end of each library row. Also show the DOI as a link to `https://doi.org/<doi>` when present and valid-looking.
-- [ ] **Step 4: Run tests, expect PASS.**
-- [ ] **Step 5: Commit** `feat(aikeytake-zog): open-URL button on rows and item page`.
+- [ ] **Step 3: Implement.** The filter and inline route as specified. UI: item page header gets a primary "Open ↗" button (shows the domain, e.g. `Open nature.com ↗`) and, when a stored PDF exists, a second "Open PDF" button (when several PDFs, one button per PDF labelled with its filename in the Files list, and the header button opens the first); each library row gets a small `↗` icon link (URL) and a `PDF` icon link (`pdf_id`) at the end of the row; both open in a new tab with `rel="noopener noreferrer"`. DOI shown as a link to `https://doi.org/<doi>` when present and valid-looking.
+- [ ] **Step 4: Run tests, expect PASS; run the whole suite.**
+- [ ] **Step 5: Commit** `feat(aikeytake-zog): open-URL and open-PDF buttons`.
 
 ### Task 4: Richer library rows
 
 **Files:**
-- Modify: `src/aikeytake_zog/items.py` (`list_items` returns `creators_short`, `year`, `domain`, `tags`, `has_pdf`, `has_snapshot` without N+1 queries), `src/aikeytake_zog/search.py` (rows already carry `snippet`; pass through), `src/aikeytake_zog/templates/library.html`, `src/aikeytake_zog/static/app.css`
+- Modify: `src/aikeytake_zog/items.py` (`list_items` returns `creators_short`, `year`, `domain`, `tags`, `has_snapshot` without N+1 queries; `pdf_id` already comes from Task 3), `src/aikeytake_zog/search.py` (rows already carry `snippet`; pass through), `src/aikeytake_zog/templates/library.html`, `src/aikeytake_zog/static/app.css`
 - Test: `tests/aikeytake_zog/test_items.py`, `tests/aikeytake_zog/test_web.py`
 
 **Interfaces:**
-- Produces: each row from `items.list_items` gains `creators_short: str` ("Chen et al."), `year: str | None`, `domain: str | None`, `tags: list[str]` (first 5), `has_pdf: bool`, `has_snapshot: bool`. Search rows get the same keys.
+- Produces: each row from `items.list_items` gains `creators_short: str` ("Chen et al."), `year: str | None`, `domain: str | None`, `tags: list[str]` (first 5), `has_snapshot: bool` (`pdf_id` from Task 3 is kept). Search rows get the same keys.
 
-- [ ] **Step 1: Failing tests:** `test_list_items_row_summary` (item with two creators, a tag, a pdf attachment → expected keys/values; assert query count is constant by counting `conn.set_trace_callback` statements for 1 vs 20 items); `test_library_row_shows_authors_year_tags_and_pdf_icon`.
+- [ ] **Step 1: Failing tests:** `test_list_items_row_summary` (item with two creators, a tag, a snapshot attachment → expected keys/values; assert query count is constant by counting `conn.set_trace_callback` statements for 1 vs 20 items); `test_library_row_shows_authors_year_tags_and_snapshot_icon`.
 - [ ] **Step 2: Run, expect FAIL.**
-- [ ] **Step 3: Implement** with grouped queries (`WHERE item_id IN (...)`) for tags and attachments over the page of ids. Row layout: title (bigger, one link), second line `authors · year · type · domain`, tag chips, 📄/🌐 badges, search snippet below when `q` is set, `↗` from Task 3 on the right. Checkbox column stays.
+- [ ] **Step 3: Implement** with grouped queries (`WHERE item_id IN (...)`) for tags and attachments over the page of ids. Row layout: title (bigger, one link), second line `authors · year · type · domain`, tag chips, 🌐 snapshot badge (the PDF link comes from Task 3), search snippet below when `q` is set, `↗` from Task 3 on the right. Checkbox column stays.
 - [ ] **Step 4: Run tests, expect PASS; run whole suite.**
 - [ ] **Step 5: Commit** `feat(aikeytake-zog): richer library rows`.
 
 ### Task 5: Item page
 
 **Files:**
-- Modify: `src/aikeytake_zog/templates/item.html`, `src/aikeytake_zog/static/app.js`, `src/aikeytake_zog/static/app.css`, `src/aikeytake_zog/api.py` (`GET /files/{id}?inline=1` serves PDFs with `Content-Disposition: inline` and `application/pdf`)
-- Test: `tests/aikeytake_zog/test_web.py`, `tests/aikeytake_zog/test_api.py`
+- Modify: `src/aikeytake_zog/templates/item.html`, `src/aikeytake_zog/static/app.js`, `src/aikeytake_zog/static/app.css`
+- Test: `tests/aikeytake_zog/test_web.py`
 
 **Interfaces:**
-- Consumes: `collections.tree_flat` with `path` (Task 2), `safe_url` (Task 3).
-- Produces: `GET /api/files/{id}?inline=1` → 200 `application/pdf`, `Content-Disposition: inline` for `kind='pdf'` only; other kinds ignore the flag.
+- Consumes: `collections.tree_flat` with `path` (Task 2), `safe_url`, the inline PDF route and `pdf_id` (Task 3).
 
-- [ ] **Step 1: Failing tests:** `test_pdf_inline_flag_sets_inline_disposition`; `test_item_page_shows_creators_as_rows_not_json` (no `"first":` text in the page); `test_item_page_collections_show_full_path`; `test_item_page_tags_render_as_removable_chips`.
+- [ ] **Step 1: Failing tests:** `test_item_page_shows_creators_as_rows_not_json` (no `"first":` text in the page); `test_item_page_collections_show_full_path`; `test_item_page_tags_render_as_removable_chips`.
 - [ ] **Step 2: Run, expect FAIL.**
-- [ ] **Step 3: Implement.** Two-column layout: left is the reading column (title, header with Open button, abstract, notes, files with "Open PDF" in a new tab and inline snapshot viewer), right is a metadata card (type, date, DOI, URL, creators as editable first/last rows with add/remove, custom fields, tags as chips with ×, collections as a searchable picker listing `path`, selected ones shown as chips). The page still saves through the same JSON API calls, so creators rows are serialized to the existing creators list on save. A visible "Saved ✓ / error" status line replaces silent saves.
+- [ ] **Step 3: Implement.** Two-column layout: left is the reading column (title, header with Open button, abstract, notes, files list with the Task 3 "Open PDF" buttons and the inline snapshot viewer), right is a metadata card (type, date, DOI, URL, creators as editable first/last rows with add/remove, custom fields, tags as chips with ×, collections as a searchable picker listing `path`, selected ones shown as chips). The page still saves through the same JSON API calls, so creators rows are serialized to the existing creators list on save. A visible "Saved ✓ / error" status line replaces silent saves.
 - [ ] **Step 4: Run tests, expect PASS.**
 - [ ] **Step 5: Commit** `feat(aikeytake-zog): item page redesign`.
 
@@ -125,6 +130,6 @@
 
 ## Self-review
 
-- Spec coverage: collection names (Task 2), open-URL button (Task 3), "UI is terrible" (Tasks 1, 4, 5), checked by opening it (Task 6). Metadata editing and undo are untouched.
+- Spec coverage: collection names (Task 2), open-URL and open-PDF buttons (Task 3), "UI is terrible" (Tasks 1, 4, 5), checked by opening it (Task 6). Metadata editing and undo are untouched.
 - Types: `path`, `creators_short`, `safe_url` are defined where first produced and only consumed later.
 - Not in this plan: drag-and-drop collection moves, keyboard shortcuts, saved searches. Say so if you want any of them.
