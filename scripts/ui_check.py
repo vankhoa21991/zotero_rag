@@ -100,6 +100,22 @@ def main() -> int:
         record(n_rows > 0, "library has item rows", f"{n_rows} item links")
         bulk_visible = page.locator("#bulk").is_visible() if page.locator("#bulk").count() else False
         record(not bulk_visible, "#bulk hidden before selection")
+        dnd = page.evaluate(
+            """() => ({
+              rows: document.querySelectorAll('.item-row').length,
+              drag: document.querySelectorAll('.item-row[draggable="true"][data-item-id]').length,
+              targets: document.querySelectorAll('.coll-row[data-collection-id][data-parent-id]').length,
+              toast: !!document.querySelector('#toast[role=status][aria-live=polite]'),
+              static: [...document.querySelectorAll('link[rel=stylesheet], script[src]')]
+                .map((e) => e.getAttribute('href') || e.getAttribute('src')).filter((u) => u.startsWith('/static/')),
+            })"""
+        )
+        record(
+            dnd["rows"] > 0 and dnd["drag"] == dnd["rows"] and dnd["targets"] > 0 and dnd["toast"]
+            and dnd["static"] and all("?v=" in u for u in dnd["static"]),
+            "drag markup: draggable rows, sidebar drop targets, toast region, versioned /static/ URLs",
+            str(dnd),
+        )
         shot(page, out, "library-1400", WIDE)
         shot(page, out, "library-375", NARROW)
         page.set_viewport_size({"width": WIDE, "height": 900})

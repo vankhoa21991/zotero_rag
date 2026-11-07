@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% macro coll_row(c, active_id) %}
-<span class="coll-row">
+<span class="coll-row" draggable="true" data-collection-id="{{ c.id }}" data-parent-id="{{ c.parent_id if c.parent_id is not none else '' }}" data-name="{{ coll_paths[c.id] }}">
   <a href="/?collection={{ c.id }}" title="{{ coll_paths[c.id] }}" {% if c.id == active_id %}class="active" aria-current="page"{% endif %}>{{ c.name }}</a>
   <span class="muted coll-count" title="{{ c.total }} items including sub-collections{% if c.total != c.count %}, {{ c.count }} directly in this collection{% endif %}">{{ c.total }}{% if c.total != c.count and c.count %}<span class="coll-direct"> · {{ c.count }} direct</span>{% endif %}</span>
   <span class="coll-actions" aria-label="Collection actions"><span class="coll-more" aria-hidden="true">⋯</span><button class="mini" data-rename-coll="{{ c.id }}" data-name="{{ c.name }}">rename</button><button class="mini danger" data-del-coll="{{ c.id }}" data-name="{{ c.name }}">del</button></span>
@@ -39,15 +39,16 @@
 </form>
 <div class="layout">
   <aside>
-    <h2>Collections <button id="new-collection" class="linklike dark">+ new</button></h2>
+    <h2 data-drop-root>Collections <button id="new-collection" class="linklike dark">+ new</button></h2>
     <ul class="tree">
-      <li><div class="leaf"><span class="coll-row"><a href="/" {% if not collection %}class="active"{% endif %}>All items</a></span></div></li>
+      <li><div class="leaf"><span class="coll-row" data-drop-root><a href="/" {% if not collection %}class="active"{% endif %}>All items</a></span></div></li>
       {% for c in collections %}{{ render_coll(c, collection) }}{% endfor %}
     </ul>
+    <p class="muted dnd-hint">Drag items onto a collection to add them; hold Shift to move. Drag a collection onto another to nest it.</p>
   </aside>
   <section id="item-list">
     {% for it in rows %}
-    <div class="item-row">
+    <div class="item-row" draggable="true" data-item-id="{{ it.id }}">
       <label class="sel"><input type="checkbox" value="{{ it.id }}"></label>
       <div class="row-main">
         <a class="row-title" href="/items/{{ it.id }}">{{ it.title or '(untitled)' }}</a>

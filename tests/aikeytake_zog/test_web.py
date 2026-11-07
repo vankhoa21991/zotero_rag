@@ -692,3 +692,45 @@ def test_paging_with_recursive_collection(client):
     p1_off = client.get(f"/?collection={ch}&recursive=0")
     assert f"collection={ch}&recursive=0&page=2" in p1_off.text
     assert client.get(f"/?collection={p}&recursive=0").text.count('class="item-row"') == 0
+
+
+def test_item_rows_are_draggable_with_ids(client):
+    import re
+    a = client.post("/api/items", json={"title": "Drag A"}).json()["id"]
+    b = client.post("/api/items", json={"title": "Drag B"}).json()["id"]
+    client.post("/login", data={"password": "test-pass"}, follow_redirects=False)
+    page = client.get("/").text
+    rows = re.findall(r'<div class="item-row"[^>]*>', page)
+    assert len(rows) >= 2
+    for tag in rows:
+        assert 'draggable="true"' in tag and re.search(r'data-item-id="\d+"', tag)
+    assert f'data-item-id="{a}"' in page and f'data-item-id="{b}"' in page
+
+
+def test_sidebar_collections_have_drop_targets(client):
+    import re
+    parent = client.post("/api/collections", json={"name": "Parent"}).json()["id"]
+    child = client.post("/api/collections", json={"name": "Child", "parent_id": parent}).json()["id"]
+    client.post("/login", data={"password": "test-pass"}, follow_redirects=False)
+    side = client.get("/").text.split("<aside>")[1].split("</aside>")[0]
+    assert re.search(rf'<span class="coll-row"[^>]*data-collection-id="{parent}"[^>]*data-parent-id=""', side)
+    assert re.search(rf'<span class="coll-row"[^>]*data-collection-id="{child}"[^>]*data-parent-id="{parent}"', side)
+    assert 'draggable="true"' in side
+    assert "data-drop-root" in side  # "Collections" heading and "All items" un-nest
+
+
+def test_toast_region_exists_with_aria_live(client):
+    client.post("/login", data={"password": "test-pass"}, follow_redirects=False)
+    page = client.get("/").text
+    assert 'id="toast"' in page and 'role="status"' in page and 'aria-live="polite"' in page
+
+
+def test_patch_collection_parent_returns_batch_that_reverts(client):
+    a = client.post("/api/collections", json={"name": "A"}).json()["id"]
+    b = client.post("/api/collections", json={"name": "B"}).json()["id"]
+    r = client.patch(f"/api/collections/{b}", json={"parent_id": a})
+    assert r.status_code == 200
+    bid = r.json()["batch"]
+    assert client.post(f"/api/batches/{bid}/revert").status_code == 200
+    tree = {c["id"]: c for c in client.get("/api/collections").json()}
+    assert b in tree  # back at top level

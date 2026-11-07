@@ -104,6 +104,208 @@ document.querySelectorAll("[data-del-coll]").forEach((b) =>
   })
 );
 
+// ---------- library: drag and drop (dnd) ----------
+// Drag item rows onto a sidebar collection to add them (Shift+drop moves out of the
+// collection being viewed). Drag a sidebar collection onto another to nest it, or onto
+// the "Collections" heading / "All items" to make it top level. Every drop is one batch,
+// reported in a toast with Undo. Touch/keyboard users keep the bulk bar's "Move to collection".
+(function dnd() {
+  const toastEl = document.getElementById("toast");
+  const list = document.getElementById("item-list");
+  if (!toastEl || !list) return;
+  const TOAST_KEY = "zog-toast", SCROLL_KEY = "zog-scroll";
+  const viewed = new URLSearchParams(location.search).get("collection");
+  const viewedId = viewed ? +viewed : null;
+  let drag = null; // {kind: "items", ids} | {kind: "coll", id}
+  let hover = null, expandTimer = null;
+
+  // --- state kept across the reload that refreshes counts and list ---
+  const store = (k, v) => { try { sessionStorage.setItem(k, v); } catch { /* storage blocked */ } };
+  const take = (k) => { try { const v = sessionStorage.getItem(k); sessionStorage.removeItem(k); return v; } catch { return null; } };
+  const reloadKeepingScroll = (toast) => {
+    store(SCROLL_KEY, String(window.scrollY));
+    if (toast) store(TOAST_KEY, JSON.stringify(toast));
+    location.reload();
+  };
+
+  // --- toast ---
+  let toastTimer;
+  const hideToast = () => { clearTimeout(toastTimer); toastEl.textContent = ""; toastEl.classList.remove("show", "error"); };
+  function showToast(text, { batch = null, error = false } = {}) {
+    hideToast();
+    const msg = document.createElement("span");
+    msg.className = "toast-msg";
+    msg.textContent = text;
+    toastEl.append(msg);
+    if (batch) {
+      const undo = document.createElement("button");
+      undo.type = "button";
+      undo.className = "toast-undo";
+      undo.textContent = "Undo";
+      undo.addEventListener("click", () => undoBatch(batch, undo));
+      toastEl.append(undo);
+    }
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = "toast-close";
+    close.setAttribute("aria-label", "Dismiss");
+    close.textContent = "×";
+    close.addEventListener("click", hideToast);
+    toastEl.append(close);
+    toastEl.classList.toggle("error", error);
+    toastEl.classList.add("show");
+    if (!error) toastTimer = setTimeout(hideToast, 15000);
+  }
+  async function undoBatch(batch, btn) {
+    btn.disabled = true;
+    try {
+      await api(`/api/batches/${batch}/revert`, { method: "POST" });
+      reloadKeepingScroll({ text: "Undone." });
+    } catch (e) {
+      btn.disabled = false;
+      showToast(`Undo failed: ${errorText(e)}`, { error: true });
+    }
+  }
+  // api() errors look like "409 {"detail":"..."}": show only the detail
+  function errorText(e) {
+    const raw = String((e && e.message) || e);
+    const m = raw.match(/^\d+ (\{.*\})$/s);
+    if (m) { try { const d = JSON.parse(m[1]).detail; return typeof d === "string" ? d : JSON.stringify(d); } catch { /* fall through */ } }
+    return raw;
+  }
+  // runs after reload: restore scroll and show the pending toast
+  const savedScroll = take(SCROLL_KEY);
+  if (savedScroll) window.scrollTo(0, +savedScroll);
+  const pending = take(TOAST_KEY);
+  if (pending) { try { const t = JSON.parse(pending); showToast(t.text, { batch: t.batch }); } catch { /* ignore */ } }
+
+  // --- what is being dragged ---
+  const plural = (n) => `${n} item${n === 1 ? "" : "s"}`;
+  const collRows = () => [...document.querySelectorAll(".coll-row[data-collection-id]")];
+  const rowById = (id) => document.querySelector(`.coll-row[data-collection-id="${id}"]`);
+  const nameOf = (row) => row.dataset.name;
+  function descendantIds(id) { // from the data-parent-id attributes in the DOM
+    const out = new Set([id]);
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (const r of collRows()) {
+        if (!out.has(+r.dataset.collectionId) && r.dataset.parentId && out.has(+r.dataset.parentId)) {
+          out.add(+r.dataset.collectionId);
+          grew = true;
+        }
+      }
+    }
+    return out;
+  }
+  function dragImage(e, text) {
+    const g = document.createElement("div");
+    g.className = "drag-ghost";
+    g.textContent = text;
+    document.body.append(g);
+    if (e.dataTransfer.setDragImage) e.dataTransfer.setDragImage(g, 12, 12);
+    setTimeout(() => g.remove(), 0);
+  }
+  function startDrag(e) {
+    const row = e.target.closest && e.target.closest(".item-row, .coll-row[data-collection-id]");
+    if (!row || !e.dataTransfer) return;
+    e.dataTransfer.effectAllowed = "copyMove";
+    e.dataTransfer.setData("text/plain", row.dataset.itemId || row.dataset.name || "");
+    if (row.classList.contains("item-row")) {
+      const cb = row.querySelector(".sel input");
+      const ids = cb && cb.checked ? selectedIds() : [+row.dataset.itemId];
+      drag = { kind: "items", ids };
+      dragImage(e, plural(ids.length));
+    } else {
+      drag = { kind: "coll", id: +row.dataset.collectionId };
+      dragImage(e, nameOf(row));
+    }
+    document.body.classList.add("dragging");
+  }
+
+  // --- drop targets ---
+  const targetOf = (e) => e.target.closest && e.target.closest(".coll-row[data-collection-id], [data-drop-root]");
+  // refusal reason, or "" when the drop is allowed; null when the element is no target at all
+  function refusal(t) {
+    if (!drag) return null;
+    const root = "dropRoot" in t.dataset;
+    if (drag.kind === "items") return root ? null : "";
+    if (root) return "";
+    return descendantIds(drag.id).has(+t.dataset.collectionId)
+      ? "A collection can't be moved into itself or one of its own sub-collections." : "";
+  }
+  function clearHover() {
+    clearTimeout(expandTimer);
+    if (hover) hover.classList.remove("drop-ok", "drop-no");
+    hover = null;
+  }
+  function expandSoon(t) {
+    const det = t.closest("summary") && t.closest("summary").parentElement;
+    if (det && det.tagName === "DETAILS" && !det.open) expandTimer = setTimeout(() => { det.open = true; }, 600);
+  }
+  function onOver(e) {
+    const t = targetOf(e);
+    const why = t ? refusal(t) : null;
+    if (why === null) { clearHover(); return; }
+    e.preventDefault(); // allow the drop; an invalid collection drop is refused with a message
+    e.dataTransfer.dropEffect = e.shiftKey && drag.kind === "items" ? "move" : "copy";
+    if (t === hover && t.classList.contains(why ? "drop-no" : "drop-ok")) return;
+    clearHover();
+    hover = t;
+    t.classList.add(why ? "drop-no" : "drop-ok");
+    expandSoon(t);
+  }
+  function onLeave(e) {
+    if (hover && !(e.relatedTarget && hover.contains(e.relatedTarget))) clearHover();
+  }
+  function endDrag() { clearHover(); drag = null; document.body.classList.remove("dragging"); }
+
+  // --- drop actions: one request (one batch) each ---
+  async function onDrop(e) {
+    const t = targetOf(e);
+    const why = t ? refusal(t) : null;
+    if (why === null) return;
+    e.preventDefault();
+    const d = drag, shift = e.shiftKey;
+    endDrag();
+    if (why) { showToast(why, { error: true }); return; }
+    try {
+      if (d.kind === "items") await dropOnCollection(d.ids, t, shift);
+      else await nestCollection(d.id, t);
+    } catch (err) { showToast(`Drop failed: ${errorText(err)}`, { error: true }); }
+  }
+  async function dropOnCollection(ids, t, shift) {
+    const to = +t.dataset.collectionId, name = nameOf(t);
+    if (viewedId === to && !document.querySelector('input[name="recursive"][type=checkbox]:checked')) {
+      showToast(`Already in ${name}.`);
+      return;
+    }
+    const moving = shift && viewedId !== null && viewedId !== to;
+    const j = moving
+      ? await api("/api/collections/move-items", { method: "POST", body: JSON.stringify({ item_ids: ids, from_id: viewedId, to_id: to }) })
+      : await api(`/api/collections/${to}/items`, { method: "POST", body: JSON.stringify({ item_ids: ids }) });
+    reloadKeepingScroll({ text: `${moving ? "Moved" : "Added"} ${plural(ids.length)} to ${name}`, batch: j.batch });
+  }
+  async function nestCollection(id, t) {
+    const root = "dropRoot" in t.dataset;
+    const parent = root ? null : +t.dataset.collectionId;
+    const me = rowById(id);
+    if (me && (me.dataset.parentId ? +me.dataset.parentId : null) === parent) {
+      showToast(root ? `${nameOf(me)} is already top level.` : `${nameOf(me)} is already in ${nameOf(t)}.`);
+      return;
+    }
+    const j = await api(`/api/collections/${id}`, { method: "PATCH", body: JSON.stringify({ parent_id: parent }) });
+    const text = root ? `Moved ${nameOf(me)} to top level` : `Nested ${nameOf(me)} under ${nameOf(t)}`;
+    reloadKeepingScroll({ text, batch: j.batch });
+  }
+
+  document.addEventListener("dragstart", startDrag);
+  document.addEventListener("dragover", onOver);
+  document.addEventListener("dragleave", onLeave);
+  document.addEventListener("drop", onDrop);
+  document.addEventListener("dragend", endDrag);
+})();
+
 // ---------- item page ----------
 const itemIdEl = document.getElementById("item-id");
 if (itemIdEl) {

@@ -382,15 +382,16 @@ def build_router() -> APIRouter:
 
     @r.patch("/collections/{collection_id}")
     def patch_collection(collection_id: int, body: CollectionPatchIn, actor: dict = Depends(get_auth), conn=Depends(get_conn)):
+        bid = None
         try:
             if body.name is not None:
-                collections.rename(conn, collection_id, body.name, actor["actor"])
+                bid = collections.rename(conn, collection_id, body.name, actor["actor"])
             if "parent_id" in body.model_fields_set:
-                collections.move(conn, collection_id, body.parent_id, actor["actor"])
+                bid = collections.move(conn, collection_id, body.parent_id, actor["actor"], batch_id=bid)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
         conn.commit()
-        return {"ok": True}
+        return {"ok": True, "batch": bid}
 
     @r.delete("/collections/{collection_id}")
     def delete_collection(collection_id: int, actor: dict = Depends(get_auth), conn=Depends(get_conn)):

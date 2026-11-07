@@ -325,3 +325,19 @@ form[action="/login"] button { margin-top: 1rem; width: 100%; }
 .creator-row[data-kind="raw"] { grid-template-columns: minmax(0, 1fr) auto; }
 .creator-row .cr-raw { overflow-wrap: anywhere; font-size: 0.75rem; color: var(--muted); }
 .creator-row[data-kind="raw"] .cr-del { grid-column: 2; }
+
+/* drag and drop: sources, targets, toast */
+.item-row[draggable="true"], .coll-row[draggable="true"] { -webkit-user-drag: element; }
+.coll-row[draggable="true"] { cursor: grab; }
+body.dragging .item-row:has(.sel input:checked), body.dragging .item-row:active { opacity: 0.7; }
+.dnd-hint { font-size: 0.75rem; margin: 0.75rem 0.5rem 0.25rem; }
+.coll-row.drop-ok, aside h2.drop-ok { background: var(--selected); outline: 2px solid var(--accent); outline-offset: -2px; }
+.coll-row.drop-no, aside h2.drop-no { outline: 2px dashed var(--danger); outline-offset: -2px; cursor: not-allowed; }
+aside h2[data-drop-root] { border-radius: var(--radius); padding: 0.25rem 0.5rem; margin-left: 0; }
+.drag-ghost { position: fixed; top: -100px; left: -100px; padding: 0.25rem 0.625rem; background: var(--accent); color: var(--accent-fg); border-radius: 999px; font-size: 0.8125rem; font-weight: 650; max-width: 16rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#toast { position: fixed; left: 16px; right: 16px; bottom: 1rem; margin: 0 auto; width: max-content; z-index: 20; max-width: min(36rem, calc(100vw - 32px)); display: none; align-items: center; gap: 0.75rem; background: var(--card); color: var(--fg); border: 1px solid var(--border); border-left: 4px solid var(--accent); border-radius: 10px; box-shadow: var(--shadow); padding: 0.625rem 0.5rem 0.625rem 1rem; font-size: 0.875rem; }
+#toast.show { display: flex; }
+#toast.error { border-left-color: var(--danger); }
+#toast .toast-msg { min-width: 0; overflow-wrap: anywhere; }
+#toast .toast-undo { flex: none; color: var(--accent); font-weight: 650; background: transparent; border-color: var(--accent); }
+#toast .toast-close { flex: none; background: transparent; border-color: transparent; color: var(--muted); font-size: 1.125rem; line-height: 1; }
