@@ -15,6 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from markupsafe import Markup, escape
 
+import hashlib
 import json
 import re
 from urllib.parse import quote, urlsplit
@@ -24,6 +25,7 @@ from aikeytake_zog.api import SESSION_COOKIE, get_conn
 from aikeytake_zog.config import Settings
 
 BASE = Path(__file__).parent
+STATIC_DIR = BASE / "static"
 templates = Jinja2Templates(directory=str(BASE / "templates"))  # .html autoescaped
 
 
@@ -121,6 +123,25 @@ def highlight(text, q) -> Markup:
     return Markup("").join(out)
 
 
+_STATIC_HASHES: dict[str, str] = {}
+
+
+def static_url(path: str) -> str:
+    """`/static/<path>?v=<sha256 prefix>` so a changed file is never served stale.
+
+    Hashed once per process per file; an unknown file yields the plain URL.
+    """
+    v = _STATIC_HASHES.get(path)
+    if v is None:
+        try:
+            v = hashlib.sha256((STATIC_DIR / path).read_bytes()).hexdigest()[:10]
+        except OSError:
+            return f"/static/{path}"
+        _STATIC_HASHES[path] = v
+    return f"/static/{path}?v={v}"
+
+
+templates.env.globals["static_url"] = static_url
 templates.env.filters["highlight"] = highlight
 templates.env.filters["safe_url"] = safe_url
 templates.env.filters["url_domain"] = url_domain
@@ -164,9 +185,11 @@ def web_routes(app) -> None:
         )
         if is_page_or_static and "content-security-policy" not in resp.headers:
             resp.headers["Content-Security-Policy"] = PAGE_CSP
+        if path.startswith("/static/"):
+            resp.headers["Cache-Control"] = "no-cache"  # revalidate; ETag keeps it cheap
         return resp
 
-    app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")
+    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
     # ---------- auth ----------
     @app.get("/login")

@@ -566,3 +566,47 @@ def test_library_row_shows_five_tags_and_plus_n(client):
     html = client.get("/").text
     assert "+2</span>" in html
     assert '<span class="chip">e</span>' in html and '<span class="chip">f</span>' not in html
+
+
+def _static_refs(html):
+    import re
+    return re.findall(r'(?:href|src)="(/static/[^"]*)"', html)
+
+
+def test_static_urls_carry_content_hash(client):
+    import hashlib
+    import re
+    from aikeytake_zog import web
+
+    web._STATIC_HASHES.clear()
+    pages = [client.get("/login").text]
+    _login(client)
+    pages.append(client.get("/").text)
+    for n, html in enumerate(pages):
+        refs = _static_refs(html)
+        assert refs or n == 0  # login.html links no static files
+        for ref in refs:
+            m = re.fullmatch(r"/static/([\w.-]+)\?v=([0-9a-f]{10})", ref)
+            assert m, ref
+            data = (web.BASE / "static" / m.group(1)).read_bytes()
+            assert m.group(2) == hashlib.sha256(data).hexdigest()[:10]
+
+
+def test_static_url_changes_when_file_changes(tmp_path, monkeypatch):
+    from aikeytake_zog import web
+
+    (tmp_path / "x.css").write_text("a{}")
+    monkeypatch.setattr(web, "STATIC_DIR", tmp_path)
+    web._STATIC_HASHES.clear()
+    first = web.static_url("x.css")
+    (tmp_path / "x.css").write_text("b{}")
+    assert web.static_url("x.css") == first  # cached per process
+    web._STATIC_HASHES.clear()
+    assert web.static_url("x.css") != first
+    assert web.static_url("missing.css") == "/static/missing.css"
+
+
+def test_static_responses_are_no_cache(client):
+    r = client.get("/static/app.css")
+    assert r.headers["cache-control"] == "no-cache"
+    assert "content-security-policy" in r.headers
