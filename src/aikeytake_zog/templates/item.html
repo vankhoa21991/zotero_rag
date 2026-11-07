@@ -4,6 +4,16 @@
 {% if item %}
 <div hidden id="item-id">{{ item.id }}</div>
 <h1><input id="f-title" class="title-input wide" value="{{ item.title }}" placeholder="(untitled)"></h1>
+{% set pdfs = item.attachments | selectattr("kind", "equalto", "pdf") | selectattr("sha256") | rejectattr("missing") | list %}
+{% set src = item.url | safe_url %}
+{% set doi_link = item.doi | doi_url %}
+{% if src or pdfs or doi_link %}
+<p class="open-actions">
+  {% if src %}<a class="btn btn-primary open-url" href="{{ src }}" target="_blank" rel="noopener noreferrer">Open {{ item.url | url_domain }} ↗</a>{% endif %}
+  {% if pdfs %}<a class="btn open-pdf" href="/api/files/{{ pdfs[0].id }}?inline=1" target="_blank" rel="noopener noreferrer">Open PDF</a>{% endif %}
+  {% if doi_link %}<a class="btn open-doi" href="{{ doi_link }}" target="_blank" rel="noopener noreferrer">DOI {{ item.doi }} ↗</a>{% endif %}
+</p>
+{% endif %}
 <dl class="meta">
   <dt>Type</dt><dd>
     <select id="f-type">
@@ -60,6 +70,7 @@
   <li>
     <strong>{{ att.filename or att.kind }}</strong>
     {% if att.kind == "link" and att.url %}<a href="{{ att.url }}" rel="noopener">open link ↗</a>{% endif %}
+    {% if att.kind == "pdf" and att.sha256 and not att.missing %}<a class="btn open-pdf" href="/api/files/{{ att.id }}?inline=1" target="_blank" rel="noopener noreferrer">Open PDF{% if pdfs | length > 1 %}: {{ att.filename or att.id }}{% endif %}</a>{% endif %}
     {% if att.sha256 and not att.missing %}<a href="/api/files/{{ att.id }}">download</a>{% endif %}
     {% if att.missing %}<span class="missing">file missing</span>{% endif %}
   </li>

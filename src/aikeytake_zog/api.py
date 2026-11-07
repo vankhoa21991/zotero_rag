@@ -465,7 +465,7 @@ def build_router() -> APIRouter:
         )
 
     @r.get("/files/{attachment_id}")
-    def download_file(attachment_id: int, settings: Settings = Depends(get_settings), conn=Depends(get_conn)):
+    def download_file(attachment_id: int, inline: int = 0, settings: Settings = Depends(get_settings), conn=Depends(get_conn)):
         row = conn.execute("SELECT * FROM attachments WHERE id=?", (attachment_id,)).fetchone()
         if row is None:
             raise HTTPException(status_code=404, detail="no such attachment")
@@ -474,6 +474,18 @@ def build_router() -> APIRouter:
         path = filestore.path_for(settings.files_dir, row["sha256"], row["ext"]) if row["sha256"] else None
         if row["missing"] or path is None or not path.exists():
             raise HTTPException(status_code=404, detail="missing", headers={"X-Missing": "true"})
+        if inline and row["kind"] == "pdf":
+            # filename is imported data: FileResponse RFC 5987-encodes it.
+            return FileResponse(
+                path,
+                filename=row["filename"] or "document.pdf",
+                media_type="application/pdf",
+                content_disposition_type="inline",
+                headers={
+                    "X-Content-Type-Options": "nosniff",
+                    "Content-Security-Policy": "sandbox",
+                },
+            )
         return FileResponse(path, filename=row["filename"], media_type="application/octet-stream")
 
     # ---------- zotero import (Task 11) ----------

@@ -260,3 +260,121 @@ def test_collection_actions_always_visible_on_touch(client):
     assert "position: static" in decl
     assert "clip-path: none" in decl
     assert "overflow: visible" in decl
+
+
+# ---------- open URL / open PDF buttons ----------
+def _login(client):
+    client.post("/login", data={"password": "test-pass"}, follow_redirects=False)
+
+
+def _pdf(client, iid, filename="paper.pdf"):
+    r = client.post(
+        "/api/files",
+        data={"item_id": str(iid), "kind": "pdf", "filename": filename},
+        files={"file": (filename, io.BytesIO(b"%PDF-1.4 " + filename.encode()), "application/pdf")},
+    )
+    assert r.status_code == 201
+    return r.json()["id"]
+
+
+def test_item_page_has_open_url_button(client):
+    iid = client.post("/api/items", json={"title": "T", "url": "https://www.nature.com/a"}).json()["id"]
+    _login(client)
+    html = client.get(f"/items/{iid}").text
+    assert 'href="https://www.nature.com/a"' in html
+    assert 'target="_blank"' in html
+    assert 'rel="noopener noreferrer"' in html
+    assert "nature.com" in html
+
+
+@pytest.mark.parametrize("bad", [
+    "javascript:alert(1)", "JaVa\tScRiPt:alert(1)", "  javascript:alert(1)",
+    "\x01javascript:alert(1)", "data:text/html,x", "vbscript:x", "/relative", "",
+])
+def test_unsafe_url_gets_no_link(client, bad):
+    iid = client.post("/api/items", json={"title": "T", "url": bad}).json()["id"]
+    _login(client)
+    for page in (f"/items/{iid}", "/"):
+        html = client.get(page).text
+        assert 'href="javascript' not in html.lower()
+        assert 'href="data:' not in html.lower()
+        assert 'href="vbscript' not in html.lower()
+        assert 'href="/relative"' not in html
+        assert "Open ↗" not in html and "open-url" not in html
+
+
+def test_safe_url_filter_unit():
+    from aikeytake_zog.web import safe_url
+    assert safe_url("https://a.com/x") == "https://a.com/x"
+    assert safe_url("HTTP://a.com") == "HTTP://a.com"
+    assert safe_url(" https://a.com ") == "https://a.com"
+    for bad in (None, "", "javascript:1", "JaVa\tScRiPt:1", "\x00javascript:1", "ftp://a", "//a.com", "https:///"):
+        assert safe_url(bad) is None
+
+
+def test_library_row_has_open_icon_for_items_with_url(client):
+    client.post("/api/items", json={"title": "T", "url": "https://example.com/a"})
+    _login(client)
+    html = client.get("/").text
+    assert 'href="https://example.com/a"' in html
+    assert 'target="_blank"' in html and 'rel="noopener noreferrer"' in html
+
+
+def test_no_button_when_no_url(client):
+    client.post("/api/items", json={"title": "T"})
+    iid = client.post("/api/items", json={"title": "U"}).json()["id"]
+    _login(client)
+    assert "open-url" not in client.get("/").text
+    assert "open-url" not in client.get(f"/items/{iid}").text
+
+
+def test_library_row_has_open_pdf_link(client):
+    iid = client.post("/api/items", json={"title": "T"}).json()["id"]
+    aid = _pdf(client, iid)
+    _login(client)
+    html = client.get("/").text
+    assert f'href="/api/files/{aid}?inline=1"' in html
+    assert 'target="_blank"' in html
+    # also in search mode
+    client.post("/api/items", json={"title": "zebra"})
+    sid = client.post("/api/items", json={"title": "quokka"}).json()["id"]
+    qa = _pdf(client, sid, "q.pdf")
+    html = client.get("/?q=quokka").text
+    assert f'href="/api/files/{qa}?inline=1"' in html
+
+
+def test_item_page_has_open_pdf_button_per_pdf(client):
+    iid = client.post("/api/items", json={"title": "T"}).json()["id"]
+    a = _pdf(client, iid, "one.pdf")
+    b = _pdf(client, iid, "two.pdf")
+    _login(client)
+    html = client.get(f"/items/{iid}").text
+    assert html.count(f'href="/api/files/{a}?inline=1"') == 2  # header + files list
+    assert html.count(f'href="/api/files/{b}?inline=1"') == 1
+    assert "Open PDF" in html
+
+
+def test_no_pdf_button_when_file_missing(client):
+    iid = client.post("/api/items", json={"title": "T"}).json()["id"]
+    aid = _pdf(client, iid)
+    conn = zog_db.connect(client.settings.db_path)
+    conn.execute("UPDATE attachments SET missing=1 WHERE id=?", (aid,))
+    conn.commit()
+    conn.close()
+    _login(client)
+    assert "inline=1" not in client.get(f"/items/{iid}").text
+    assert "inline=1" not in client.get("/").text
+
+
+def test_doi_link_only_when_valid(client):
+    good = client.post("/api/items", json={"title": "G", "doi": "10.1000/xyz123"}).json()["id"]
+    bad = client.post("/api/items", json={"title": "B", "doi": 'x"><script>'}).json()["id"]
+    _login(client)
+    assert 'href="https://doi.org/10.1000/xyz123"' in client.get(f"/items/{good}").text
+    assert "https://doi.org/x" not in client.get(f"/items/{bad}").text
+
+
+def test_search_mode_row_has_open_url_icon(client):
+    client.post("/api/items", json={"title": "quokka", "url": "https://example.com/q"})
+    _login(client)
+    assert 'href="https://example.com/q"' in client.get("/?q=quokka").text

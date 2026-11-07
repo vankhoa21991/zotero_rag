@@ -46,6 +46,11 @@
       <label class="sel"><input type="checkbox" value="{{ it.id }}"></label>
       <a href="/items/{{ it.id }}">{{ it.title or '(untitled)' }}</a>
       <span class="muted">{{ it.type }}{% if it.date %} · {{ it.date }}{% endif %}</span>
+      <span class="row-links">
+        {% set u = it.url | safe_url %}
+        {% if u %}<a class="btn icon-btn open-url" href="{{ u }}" target="_blank" rel="noopener noreferrer" title="Open source URL" aria-label="Open source URL">↗</a>{% endif %}
+        {% if it.pdf_id %}<a class="btn icon-btn open-pdf" href="/api/files/{{ it.pdf_id }}?inline=1" target="_blank" rel="noopener noreferrer" title="Open PDF" aria-label="Open PDF">PDF</a>{% endif %}
+      </span>
     </div>
     {% else %}
     <p class="muted">No items{% if q %} match “{{ q }}”{% endif %}.</p>

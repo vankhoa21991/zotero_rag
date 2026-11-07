@@ -332,3 +332,62 @@ def test_upload_schedules_background_extraction(env):
 def test_health(env):
     r = env["client"].get("/api/health", headers=_h(env["read"]))
     assert r.status_code == 200 and r.json()["ok"] is True
+
+
+def _upload(c, w, iid, kind, filename, payload):
+    r = c.post(
+        "/api/files",
+        data={"item_id": str(iid), "kind": kind, "filename": filename},
+        files={"file": (filename, io.BytesIO(payload), "application/octet-stream")},
+        headers=w,
+    )
+    assert r.status_code == 201
+    return r.json()
+
+
+def test_pdf_inline_flag_sets_inline_headers(env):
+    c, w = env["client"], _h(env["write"])
+    iid = c.post("/api/items", json={"title": "T"}, headers=w).json()["id"]
+    payload = b"%PDF-1.4 inline"
+    att = _upload(c, w, iid, "pdf", "a.pdf", payload)
+    r = c.get(f"/api/files/{att['id']}?inline=1", headers=w)
+    assert r.status_code == 200 and r.content == payload
+    assert r.headers["content-type"].startswith("application/pdf")
+    assert r.headers["content-disposition"].startswith("inline")
+    assert 'filename="a.pdf"' in r.headers["content-disposition"]
+    assert r.headers["x-content-type-options"] == "nosniff"
+    assert r.headers["content-security-policy"] == "sandbox"
+    # default still downloads
+    d = c.get(f"/api/files/{att['id']}", headers=w)
+    assert d.headers["content-type"].startswith("application/octet-stream")
+
+
+def test_inline_filename_is_safely_encoded(env):
+    c, w = env["client"], _h(env["write"])
+    iid = c.post("/api/items", json={"title": "T"}, headers=w).json()["id"]
+    att = _upload(c, w, iid, "pdf", "a.pdf", b"%PDF-1.4 x")
+    conn = zog_db.connect(env["settings"].db_path)
+    conn.execute("UPDATE attachments SET filename=? WHERE id=?", ('ev"il\r\nX: y é.pdf', att["id"]))
+    conn.commit()
+    conn.close()
+    r = c.get(f"/api/files/{att['id']}?inline=1", headers=w)
+    assert r.status_code == 200
+    cd = r.headers["content-disposition"]
+    assert "\r" not in cd and "\n" not in cd and 'ev"il' not in cd
+    assert "filename*=" in cd
+
+
+def test_inline_flag_ignored_for_non_pdf(env):
+    c, w = env["client"], _h(env["write"])
+    iid = c.post("/api/items", json={"title": "T"}, headers=w).json()["id"]
+    att = _upload(c, w, iid, "other", "a.bin", b"data")
+    r = c.get(f"/api/files/{att['id']}?inline=1", headers=w)
+    assert r.headers["content-type"].startswith("application/octet-stream")
+    assert not r.headers["content-disposition"].startswith("inline")
+
+
+def test_inline_requires_auth(env):
+    c, w = env["client"], _h(env["write"])
+    iid = c.post("/api/items", json={"title": "T"}, headers=w).json()["id"]
+    att = _upload(c, w, iid, "pdf", "a.pdf", b"%PDF-1.4 x")
+    assert c.get(f"/api/files/{att['id']}?inline=1").status_code == 401

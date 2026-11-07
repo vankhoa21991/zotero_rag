@@ -287,7 +287,7 @@ def list_items(
         d = dict(r)
         d["creators"] = json.loads(d["creators"])
         out.append(d)
-    return out
+    return search.add_pdf_ids(conn, out)
 
 
 def _apply_item_change(conn: sqlite3.Connection, entity_id: str, field: str, value) -> None:

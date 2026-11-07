@@ -15,7 +15,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 import json
-from urllib.parse import quote
+import re
+from urllib.parse import quote, urlsplit
 
 from aikeytake_zog import auth, changelog, collections, db, items, search, tags
 from aikeytake_zog.api import SESSION_COOKIE, get_conn
@@ -23,6 +24,42 @@ from aikeytake_zog.config import Settings
 
 BASE = Path(__file__).parent
 templates = Jinja2Templates(directory=str(BASE / "templates"))  # .html autoescaped
+
+
+def safe_url(value) -> str | None:
+    """Return value (stripped) only if it is an absolute http(s) URL, else None."""
+    if not isinstance(value, str):
+        return None
+    v = value.strip()
+    try:
+        u = urlsplit(v)
+    except ValueError:
+        return None
+    if u.scheme not in ("http", "https") or not u.hostname:
+        return None
+    if any(ord(ch) < 0x21 or ord(ch) == 0x7F for ch in v):
+        return None
+    return v
+
+
+def url_domain(value) -> str:
+    u = safe_url(value)
+    host = (urlsplit(u).hostname if u else "") or ""
+    return host[4:] if host.startswith("www.") else host
+
+
+_DOI_RE = re.compile(r"^10\.\d{4,9}/[^\s\"<>]+$")
+
+
+def doi_url(value) -> str | None:
+    v = value.strip() if isinstance(value, str) else ""
+    v = re.sub(r"^(https?://(dx\.)?doi\.org/|doi:)", "", v, flags=re.I)
+    return "https://doi.org/" + quote(v, safe="/:()") if _DOI_RE.match(v) else None
+
+
+templates.env.filters["safe_url"] = safe_url
+templates.env.filters["url_domain"] = url_domain
+templates.env.filters["doi_url"] = doi_url
 PAGE_CSP = (
     "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';"
     " img-src 'self' data:; connect-src 'self'; frame-src 'self'"

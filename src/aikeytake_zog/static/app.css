@@ -152,3 +152,10 @@ form[action="/login"] button { margin-top: 0.75rem; }
   nav { padding: 0.5rem 16px; }
   iframe.snapshot { height: 22rem; }
 }
+
+/* open buttons */
+.row-links { display: inline-flex; gap: 0.3rem; margin-left: auto; flex: 0 0 auto; }
+.row-links .icon-btn { font-size: 0.8rem; text-decoration: none; }
+.open-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0.5rem 0 1rem; }
+.open-actions .btn { max-width: 100%; overflow-wrap: anywhere; text-align: center; }
+.files .open-pdf { padding: 0.15rem 0.6rem; min-height: 0; overflow-wrap: anywhere; }

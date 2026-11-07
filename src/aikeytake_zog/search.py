@@ -103,6 +103,24 @@ def set_attachment_text(conn: sqlite3.Connection, attachment_id: int, text: str)
         reindex_item(conn, parent["item_id"])
 
 
+def add_pdf_ids(conn: sqlite3.Connection, rows: list[dict]) -> list[dict]:
+    """Set row['pdf_id'] to the first stored PDF attachment id (or None); one query."""
+    ids = [r["id"] for r in rows]
+    found: dict[int, int] = {}
+    if ids:
+        marks = ",".join("?" * len(ids))
+        for r in conn.execute(
+            "SELECT item_id, MIN(id) AS pid FROM attachments"
+            " WHERE kind='pdf' AND sha256 IS NOT NULL AND sha256 != '' AND missing=0"
+            f" AND item_id IN ({marks}) GROUP BY item_id",
+            ids,
+        ):
+            found[r["item_id"]] = r["pid"]
+    for r in rows:
+        r["pdf_id"] = found.get(r["id"])
+    return rows
+
+
 def search(
     conn: sqlite3.Connection,
     query: str,
@@ -118,7 +136,7 @@ def search(
     if not q:
         return []
     sql = (
-        "SELECT i.id, i.title, i.type,"
+        "SELECT i.id, i.title, i.type, i.url,"
         " COALESCE("
         "  NULLIF(snippet(item_fts, 6, '', '', '…', 10), ''), "
         "  NULLIF(snippet(item_fts, 4, '', '', '…', 10), ''), "
@@ -151,4 +169,4 @@ def search(
         params.append(type)
     sql += " ORDER BY score DESC, i.id ASC LIMIT ? OFFSET ?"
     params += [limit, offset]
-    return [dict(r) for r in conn.execute(sql, params).fetchall()]
+    return add_pdf_ids(conn, [dict(r) for r in conn.execute(sql, params).fetchall()])

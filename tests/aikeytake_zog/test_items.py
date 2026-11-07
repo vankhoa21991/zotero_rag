@@ -138,3 +138,27 @@ def test_creators_must_be_list_of_dicts_or_strings(conn):
         assert False, "expected ValueError for string creators"
     except ValueError:
         pass
+
+
+def _att(conn, iid, kind, sha, missing=0, filename="f"):
+    cur = conn.execute(
+        "INSERT INTO attachments(item_id, kind, filename, sha256, ext, missing) VALUES(?,?,?,?,?,?)",
+        (iid, kind, filename, sha, kind, missing),
+    )
+    return cur.lastrowid
+
+
+def test_list_items_pdf_id_first_stored_pdf(conn):
+    a = items.create_item(conn, {"title": "A"}, actor="user")
+    b = items.create_item(conn, {"title": "B"}, actor="user")
+    c = items.create_item(conn, {"title": "C"}, actor="user")
+    _att(conn, a, "pdf", "aa" * 32, missing=1)
+    good = _att(conn, a, "pdf", "bb" * 32)
+    _att(conn, a, "pdf", "cc" * 32)
+    _att(conn, b, "snapshot", "dd" * 32)
+    _att(conn, c, "pdf", None)
+    conn.commit()
+    by_id = {r["id"]: r["pdf_id"] for r in items.list_items(conn)}
+    assert by_id[a] == good
+    assert by_id[b] is None
+    assert by_id[c] is None
