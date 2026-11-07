@@ -1,3 +1,64 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><title>Save to aikeytake-zog</title></head>
-<body><p>Popup arrives in a later task.</p></body></html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Save to aikeytake-zog</title>
+<link rel="stylesheet" href="popup.css">
+</head>
+<body>
+<header>
+  <h1>Save to library</h1>
+  <a id="open-options" href="#" class="quiet">Options</a>
+</header>
+
+<section id="unconfigured" hidden>
+  <p>Set the server URL and a write token to start saving.</p>
+  <p><a id="setup-link" href="#" class="btn primary">Open options</a></p>
+</section>
+
+<section id="banner" role="alert" hidden>
+  <p id="banner-text"></p>
+  <button type="button" id="banner-options" class="btn" hidden>Open options</button>
+</section>
+
+<section id="result" role="status" aria-live="polite" hidden>
+  <p id="result-title" class="result-title"></p>
+  <ul id="warnings"></ul>
+  <div class="row">
+    <a id="library-link" class="btn primary" target="_blank" rel="noopener">Open in library &#8599;</a>
+    <button type="button" id="save-again" class="btn" hidden>Save again</button>
+  </div>
+</section>
+
+<form id="form" autocomplete="off" hidden>
+  <label for="title">Title</label>
+  <input id="title" type="text" maxlength="400">
+  <p id="url" class="url" title=""></p>
+
+  <label for="tag-input">Tags</label>
+  <div class="tags" id="tags-box">
+    <ul id="chips"></ul>
+    <input id="tag-input" type="text" list="tag-list" placeholder="Add tags (Enter or comma)" spellcheck="false">
+    <datalist id="tag-list"></datalist>
+  </div>
+
+  <label for="collection">Collection</label>
+  <select id="collection"><option value="">None</option></select>
+
+  <label for="note">Note</label>
+  <textarea id="note" rows="3"></textarea>
+
+  <p id="reason" class="reason" hidden></p>
+  <p id="grant-row" hidden>
+    <button type="button" id="grant" class="btn small">Grant access to fetch images/CSS</button>
+  </p>
+
+  <div class="row actions">
+    <button type="submit" id="save" class="btn primary">Save page</button>
+    <button type="button" id="save-link" class="btn">Save link only</button>
+  </div>
+</form>
+<script type="module" src="popup.js"></script>
+</body>
+</html>
