@@ -47,6 +47,15 @@ models, and the index is a single SQLite file.
 (1,823 "AI summary" notes on the server — `data/summaries/` is the legacy source and is
 no longer read). See [PLAN.md](PLAN.md) for the plan and open questions.
 
+zrag is also the **agent's interface to the library**: `collections`, `add` and `file`
+(create/filing items, leaf-only, one revertible batch per move), `place` (suggests an
+existing leaf for each item in `New` by vector-similarity voting — read-only) and
+`describe --collection New` (summarize + write "AI summary" notes back). The weekly
+maintenance sequence is [docs/weekly.md](docs/weekly.md); the full command reference,
+output shapes, rules and error codes are in [docs/agent-usage.md](docs/agent-usage.md).
+An end-to-end check of the whole flow runs against a throwaway server:
+`uv run --extra server --extra pdf --with numpy python scripts/weekly_check.py /tmp/wc`.
+
 ## aikeytake-zog — self-hosted library server
 
 This repo also contains **aikeytake-zog**, a small self-hosted server for the library itself:
@@ -98,7 +107,14 @@ field matched: summary/abstract/notes/tags/title).
 | `zrag index [--db PATH]` | ingest from aikeytake-zog: items + its "AI summary" notes + tags, and prune docs whose item is gone (trashed/deduped). Content-hashed: re-run any time (~20 s). Without `ZOG_URL`: legacy zot path (`items.json` + `data/summaries`). |
 | `zrag embed [--db PATH]` | compute vectors for docs without one. |
 | `zrag search QUESTION [-k N] [--json] [--db PATH]` | hybrid search: BM25 + vector candidates, reranked. |
+| `zrag collections [--json]` | the collection tree (id, name, direct/total counts); `--json` adds `path` and `leaf`. |
+| `zrag add URL [--title T] [--tag X …] [--collection ID\|PATH] [--note TEXT] [--json]` | **write** — create a webpage item (default collection: `New`); duplicate URLs report the existing id. |
+| `zrag file ID [ID…] --to ID\|PATH [--from ID\|PATH]` | **write** — move items into a leaf (refuses parents); prints `batch <id>`. |
+| `zrag place [--collection New] [--k 7] [--json]` | read-only: suggested existing leaf per item in the source collection, with confidence and level. |
 | `zrag eval QUESTIONS.jsonl [--db PATH]` | hit@5/10 for the question set, keyword-only vs full pipeline. |
+
+Write commands need a write-scope `ZOG_TOKEN`; reference and error codes:
+[docs/agent-usage.md](docs/agent-usage.md).
 
 ## How search works
 
@@ -151,7 +167,9 @@ src/zotero_rag/
   rerank.py        cross-encoder reranker, LLM judge, RRF fallback
   search.py        find_papers(): candidate union -> rerank -> one row per item
   evaluate.py      hit@k over questions.jsonl
-  cli.py           zrag command line
+  place.py         leaf suggestions: vector-similarity voting over the embedding index
+  cli.py           zrag command line (search, index, embed, describe, collections, add, file, place)
+scripts/weekly_check.py   end-to-end weekly-flow check on a throwaway server (seeded items, fake LLM/embeddings)
 tests/             offline unit tests (fake run/fake LLM/fake embedder); real-model tests skip unless available
 data/
   items.json       legacy full library export (gitignored; only used without ZOG_URL)

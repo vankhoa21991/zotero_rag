@@ -12,7 +12,7 @@ Updated 2026-11-08.
 | **Docs** | `docs/running.md` (tutorial), `docs/vps-deploy.md` (VPS), `docs/aikeytake-zog.md` (reference), `docs/library-structure.md` (collections), `extension/README.md`. |
 | **Hosting** | Running on an IONOS VPS behind Tailscale (or an SSH tunnel). The VPS copy is only as fresh as the last database copy — see below. |
 | **Library organization** | Done for this pass: leaf-only layout, `AI_knowledge` merged into `AI`, audit moves applied, summaries added as notes. See [library-structure.md](library-structure.md). |
-| **zrag** (RAG search) | Built; reads the library from this server when `ZOG_URL` is set (items + "AI summary" notes + tags + extracted text), legacy `zot` path as fallback. Full summarization run is done (1,823 "AI summary" notes). |
+| **zrag** (RAG search) | Built; reads the library from this server when `ZOG_URL` is set (items + "AI summary" notes + tags + extracted text), legacy `zot` path as fallback. Full summarization run is done (1,823 "AI summary" notes). Agent/maintenance commands: `collections`, `add`, `file` (leaf-only, batched), `place` (read-only leaf suggestions from the embedding index), `describe --collection New` with note write-back — see [agent-usage.md](agent-usage.md). |
 
 ## What was done recently
 
@@ -27,15 +27,24 @@ Updated 2026-11-08.
   that share a title, or PDF-only pairs without shared hashes).
 - zrag reoriented to read from the server (plan Task 4): `GET /api/items/{id}/text` endpoint,
   `ZogClient`, server index path with pruning of trashed items, `id` in search results.
+- Agent connection plan R-A…R-D done: `describe --collection` writes "AI summary" notes back
+  to the server (idempotent); `zrag collections|add|file` for agents (leaf-only targets,
+  one revertible batch per move, `batch <id>` on stdout); `zrag place` suggests an existing
+  leaf per item by vector-similarity voting over the embedding index (read-only, levels
+  high/medium/low/none/unindexed); weekly flow documented in [weekly.md](weekly.md) with the
+  raw API as fallback; end-to-end check `scripts/weekly_check.py` (throwaway server, seeded
+  items, 23 assertions). Docs: [agent-usage.md](agent-usage.md).
 
 ## Not built yet
 
-- **Agent connection + reorganization proposals** — partially built:
+- **Agent connection + reorganization proposals** — mostly built:
   [docs/superpowers/plans/2026-11-07-agent-connection-and-reorganization.md](superpowers/plans/2026-11-07-agent-connection-and-reorganization.md)
-  (Task 4 done: `ZogClient` + server-based zrag; `GET /api/items/{id}/text` done). Remaining:
-  proposals store/API/web UI (Tasks 1–3) and the `zrag collections|add|reorganize` commands (Tasks 5–6).
-- **Intake flow**: new documents land in the `New` collection; an agent should summarize each one
-  ("AI summary" note) and file it into the right leaf. This is the job the agent-connection plan above would automate.
+  (Task 4 + revisions R-A…R-D done: `ZogClient` + server-based zrag, agent commands,
+  `place`, weekly flow docs + end-to-end check). Remaining: the `zog-library` skill (R-E)
+  and the proposals store/API/web UI (Tasks 1–3) for bulk reorganization.
+- **Intake flow**: new documents land in the `New` collection; the weekly zrag flow
+  ([weekly.md](weekly.md)) now summarizes, suggests and files them — user approves the
+  suggestions before anything moves.
 - The 50 unfiled items, splitting `Neuromorphic` (see library-structure.md), and the 21 same-title
   groups left for manual review after dedup.
 - Optional: login throttle that uses the real client IP behind a proxy (only matters with a public domain),
