@@ -8,13 +8,23 @@ The server is the source of truth for items, collections, notes (including
 the imported "AI summary" notes) and extracted attachment text; zotero-rag's
 local data/summaries folder is no longer read.
 """
+import html
 import json
+import re
 import urllib.error
 import urllib.request
 
 from .zotclient import strip_html
 
 AI_SUMMARY_MARK = "<h3>AI summary</h3>"
+
+
+def summary_note_html(text: str) -> str:
+    """The 'AI summary' note body for a plain-text summary: the mark plus one
+    escaped <p> per paragraph (split on blank lines, whitespace collapsed).
+    Same format scripts/import_summaries.py writes."""
+    paras = [re.sub(r"\s+", " ", p).strip() for p in re.split(r"\n\s*\n", text)]
+    return AI_SUMMARY_MARK + "".join(f"<p>{html.escape(p)}</p>" for p in paras if p)
 
 
 class ZogError(RuntimeError):
@@ -111,6 +121,54 @@ class ZogClient:
     def item_full(self, item_id: int) -> dict:
         """One item with tags, collections, notes and attachments."""
         return self._get(f"/api/items/{item_id}")
+
+    def add_note(self, item_id: int, body_html: str) -> int:
+        """POST /api/items/{id}/notes; returns the new note id (write scope)."""
+        return self._request("POST", f"/api/items/{item_id}/notes", {"body": body_html})["id"]
+
+    def add_summary(self, item_id: int, text: str) -> int | None:
+        """Add `text` as the item's 'AI summary' note. Returns the note id,
+        or None when the item already has one (never overwritten)."""
+        full = self.item_full(item_id)
+        for n in full.get("notes") or []:
+            if (n.get("body") or "").strip().startswith(AI_SUMMARY_MARK):
+                return None
+        return self.add_note(item_id, summary_note_html(text))
+
+    def items_in(self, collection_id: int) -> list[dict]:
+        """All items directly in a collection (paged), normalized like export_all."""
+        rows: list[dict] = []
+        offset = 0
+        while True:
+            page = self._get(f"/api/items?collection={collection_id}&limit=200&offset={offset}")
+            for r in page:
+                rows.append(self._row(r))
+            if len(page) < 200:
+                return rows
+            offset += 200
+
+    def find_collection(self, name_or_path: str) -> dict:
+        """Resolve a collection by exact id (digits), exact path (A/B/C) or
+        unique name. Raises ZogError with 'no collection …' or 'ambiguous …'."""
+        flat = self.collections()
+        q = name_or_path.strip()
+        if q.isdigit():
+            for c in flat:
+                if c["id"] == int(q):
+                    return c
+            raise ZogError(f"no collection with id {q}", "other")
+        if "/" in q:
+            for c in flat:
+                if c["path"] == q:
+                    return c
+            raise ZogError(f"no collection with path {q!r}", "other")
+        matches = [c for c in flat if c["name"] == q]
+        if not matches:
+            raise ZogError(f"no collection named {q!r}", "other")
+        if len(matches) > 1:
+            paths = ", ".join(c["path"] for c in matches)
+            raise ZogError(f"ambiguous collection name {q!r}: {paths}; use the full path", "other")
+        return matches[0]
 
     def item_text(self, item_id: int) -> dict:
         """Extracted text sources: {id, title, url, sources:[{kind,...,text}]}."""

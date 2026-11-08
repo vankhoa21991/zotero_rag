@@ -14,6 +14,7 @@ from . import extractors, items
 from .llm import LLM, LLMError, summarize
 from .sources import build_snapshot_map, choose_source
 from .zotclient import Zot
+from .zogclient import ZogError
 
 
 def describe_item(item: dict, zot, llm, fetch=extractors.fetch, fetch_raw=extractors.fetch_raw,
@@ -94,8 +95,14 @@ def _read_log(out_jsonl: str) -> dict:
 def run(items: list[dict], zot, llm, out_jsonl: str, md_dir: str, limit: int = 0,
         keys: set | None = None, retry_failed: bool = False, fetch=extractors.fetch,
         fetch_raw=extractors.fetch_raw, pdf_text=extractors.pdf_to_text,
-        snapshot_map=None, choose=None) -> dict:
-    """Process items; append one log line each; write .md for successes. Returns {status: count}."""
+        snapshot_map=None, choose=None, writeback=None) -> dict:
+    """Process items; append one log line each; write .md for successes.
+
+    `writeback` is an optional (item, rec) -> bool|None callable (server mode):
+    called after the .md is written; True counts as `written_back`, a ZogError
+    counts as `writeback_failed` (one stderr line, the .md is kept, the run
+    continues). Returns {status: count} plus those two counters when used.
+    """
     done = _read_log(out_jsonl)
     todo = []
     for it in items:
@@ -119,6 +126,14 @@ def run(items: list[dict], zot, llm, out_jsonl: str, md_dir: str, limit: int = 0
                                 pdf_text=pdf_text, snapshot_map=snapshot_map, choose=choose)
             if rec["summary"]:
                 write_md(rec, md_dir)
+                if writeback is not None:
+                    try:
+                        if writeback(it, rec):
+                            counts["written_back"] = counts.get("written_back", 0) + 1
+                    except ZogError as e:
+                        counts["writeback_failed"] = counts.get("writeback_failed", 0) + 1
+                        print(f"note: write-back failed for {rec['key']}: {e}", file=sys.stderr,
+                              flush=True)
             out.write(json.dumps(rec, ensure_ascii=False) + "\n")
             out.flush()
             counts[rec["status"]] = counts.get(rec["status"], 0) + 1
@@ -134,6 +149,10 @@ def main(argv=None) -> int:
     ap.add_argument("--md-dir", default="data/summaries")
     ap.add_argument("--out", default="data/descriptions.jsonl")
     ap.add_argument("--retry-failed", action="store_true")
+    ap.add_argument("--collection",
+                    help="server mode: only items directly in this collection (name, path or id)")
+    ap.add_argument("--no-writeback", action="store_true",
+                    help="server mode: do not write the summaries back to the server as notes")
     a = ap.parse_args(argv)
 
     # lazy import: cli imports describe only inside its cmd_* functions
@@ -142,17 +161,25 @@ def main(argv=None) -> int:
 
     zog = make_source()
     if zog is not None:
-        rows = zog.export_all()
+        if a.collection:
+            col = zog.find_collection(a.collection)
+            rows = zog.items_in(col["id"])
+        else:
+            rows = zog.export_all()
         top = items.top_level(rows)
         print(f"{len(rows)} rows, {len(top)} top-level items (from {zog.base_url})", file=sys.stderr)
-        print("note: server mode — 'zrag index' reads summaries from the server's 'AI summary' "
-              "notes, so the .md files written here are NOT indexed until they are written back "
-              "as notes (not implemented yet; see the agent-connection plan, Tasks 5-7).", file=sys.stderr)
+        if a.no_writeback:
+            writeback = None
+            print("note: server mode — 'zrag index' reads summaries from the server's 'AI summary' "
+                  "notes, so the .md files written here are NOT indexed until written back "
+                  "as notes (skipped: --no-writeback).", file=sys.stderr)
+        else:
+            writeback = lambda it, rec: zog.add_summary(it["id"], rec["summary"])
         llm = LLM()
         keys = set(a.keys.split(",")) if a.keys else None
         counts = run(top, None, llm, a.out, a.md_dir, limit=a.limit, keys=keys,
                      retry_failed=a.retry_failed,
-                     choose=lambda it: choose_source_server(it, zog))
+                     choose=lambda it: choose_source_server(it, zog), writeback=writeback)
         print(f"done: {counts}", file=sys.stderr)
         return 0
 

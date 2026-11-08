@@ -62,6 +62,10 @@ def cmd_describe(args) -> int:
     argv += ["--md-dir", args.md_dir, "--out", args.out]
     if args.retry_failed:
         argv.append("--retry-failed")
+    if args.collection:
+        argv += ["--collection", args.collection]
+    if args.no_writeback:
+        argv.append("--no-writeback")
     return describe.main(argv)
 
 
@@ -254,6 +258,10 @@ def _parser() -> argparse.ArgumentParser:
     d.add_argument("--md-dir", default="data/summaries")
     d.add_argument("--out", default="data/descriptions.jsonl")
     d.add_argument("--retry-failed", action="store_true")
+    d.add_argument("--collection",
+                   help="server mode: only items directly in this collection (name, path or id)")
+    d.add_argument("--no-writeback", action="store_true",
+                   help="server mode: do not write the summaries back to the server as notes")
     d.set_defaults(func=cmd_describe)
 
     i = sub.add_parser("index", help="ingest items + summaries + notes into the SQLite index")

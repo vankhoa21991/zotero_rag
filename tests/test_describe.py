@@ -1,4 +1,6 @@
 """Tests for describe.py — the ingestion pipeline. Offline: zot/llm/fetch injected."""
+import contextlib
+import io
 import json
 import os
 import tempfile
@@ -96,6 +98,127 @@ class WriteMdTest(unittest.TestCase):
         self.assertEqual(lines[7], "---")
         self.assertIn("# A \"quoted\": title", text)
         self.assertIn("The summary body.", text)
+
+
+class FakeZog:
+    """Server-mode fake: export_all/item_text for choose_source_server, add_summary for write-back."""
+
+    base_url = "http://fake-zog"
+
+    def __init__(self, items, collections=None, fail_writeback=False):
+        self.items = items
+        self.collections = collections or {}
+        self.fail_writeback = fail_writeback
+        self.notes_posted = []
+
+    def export_all(self):
+        return list(self.items)
+
+    def item_text(self, iid):
+        return {"id": iid, "sources": []}
+
+    def items_in(self, collection_id):
+        return [it for it in self.items if collection_id in (it.get("collections") or [])]
+
+    def find_collection(self, name_or_path):
+        for c in self.collections.values():
+            if c["name"] == name_or_path or str(c["id"]) == name_or_path:
+                return c
+        raise AssertionError(f"no such collection in fake: {name_or_path}")
+
+    def add_summary(self, iid, text):
+        if self.fail_writeback:
+            from zotero_rag.zogclient import ZogError
+
+            raise ZogError("server returned HTTP 403: read scope", "forbidden")
+        self.notes_posted.append((iid, text))
+        return 99
+
+
+def server_item(key, iid, abstract="An abstract. " * 10, collections=()):
+    return {"id": iid, "key": key, "title": f"Title {key}", "url": "",
+            "abstract": abstract, "type": "webpage", "collections": list(collections)}
+
+
+class ServerWritebackTest(unittest.TestCase):
+    def setUp(self):
+        import zotero_rag.cli as cli
+        from zotero_rag import describe
+
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.out = os.path.join(self.tmp.name, "log.jsonl")
+        self.md = os.path.join(self.tmp.name, "mds")
+        self.describe_mod = describe
+        self._orig_llm = describe.LLM
+        self.llm = FakeLLM()
+        describe.LLM = lambda: self.llm
+        self.addCleanup(self._restore_llm)
+        self._orig_source = cli.make_source
+        self.zog = None
+
+    def _restore_llm(self):
+        self.describe_mod.LLM = self._orig_llm
+
+    def _use_zog(self, items, **kw):
+        import zotero_rag.cli as cli
+
+        self.zog = FakeZog(items, **kw)
+        cli.make_source = lambda env=None: self.zog
+        self.addCleanup(self._restore_source)
+
+    def _restore_source(self):
+        import zotero_rag.cli as cli
+
+        cli.make_source = self._orig_source
+
+    def _run(self, *extra):
+        argv = ["items.json", "--md-dir", self.md, "--out", self.out] + list(extra)
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            rc = self.describe_mod.main(argv)
+        return rc, out.getvalue(), err.getvalue()
+
+    def test_describe_writes_back_note_and_counts_it(self):
+        self._use_zog([server_item("A", 1)])
+        rc, out, err = self._run()
+        self.assertEqual(rc, 0)
+        self.assertTrue(os.path.exists(os.path.join(self.md, "A.md")))
+        self.assertEqual(self.zog.notes_posted, [(1, GOOD_SUMMARY)])
+        self.assertIn("written_back': 1", err)  # in the final counts
+
+    def test_describe_forbidden_writeback_keeps_md_and_continues(self):
+        self._use_zog([server_item("A", 1), server_item("B", 2)], fail_writeback=True)
+        rc, out, err = self._run()
+        self.assertEqual(rc, 0)
+        self.assertTrue(os.path.exists(os.path.join(self.md, "A.md")))
+        self.assertTrue(os.path.exists(os.path.join(self.md, "B.md")))  # kept and continued
+        self.assertEqual(self.zog.notes_posted, [])
+        self.assertIn("writeback_failed': 2", err)
+        self.assertIn("write-back failed for A", err)
+        self.assertIn("write-back failed for B", err)
+
+    def test_describe_no_writeback_flag_keeps_old_warning(self):
+        self._use_zog([server_item("A", 1)])
+        rc, out, err = self._run("--no-writeback")
+        self.assertEqual(rc, 0)
+        self.assertTrue(os.path.exists(os.path.join(self.md, "A.md")))
+        self.assertEqual(self.zog.notes_posted, [])
+        self.assertIn("NOT indexed until written back", err)
+        self.assertNotIn("written_back", err)
+
+    def test_describe_collection_filter_only_processes_that_collection(self):
+        cols = {"New": {"id": 10, "name": "New"}, "Filed": {"id": 11, "name": "Filed"}}
+        items = [server_item("A", 1, collections=[10]),
+                 server_item("B", 2, collections=[10]),
+                 server_item("C", 3, collections=[11])]
+        self._use_zog(items, collections=cols)
+        rc, out, err = self._run("--collection", "New")
+        self.assertEqual(rc, 0)
+        log = [json.loads(l) for l in open(self.out) if l.strip()]
+        self.assertEqual([r["key"] for r in log], ["A", "B"])
+        self.assertEqual(len(self.llm.calls), 2)  # C never summarized
+        self.assertFalse(os.path.exists(os.path.join(self.md, "C.md")))
 
 
 class RunTest(unittest.TestCase):
