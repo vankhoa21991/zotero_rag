@@ -24,7 +24,7 @@ write` and export it as `ZOG_TOKEN` for the session.
 |---|---|
 | `zrag collections` | the collection tree, indented: `<id> <name> (<N> direct, <M> total)` |
 | `zrag collections --json` | flat list; each entry has `id, name, parent_id, path, count, total, leaf` |
-| `zrag place [--collection New] [--k 7] [--db PATH] [--json]` | one row per item in the source collection: `id`, title, suggested leaf path, confidence (0–1), level (`high` ≥ 0.7, `medium` ≥ 0.5, `low`, `none`, `unindexed`) |
+| `zrag place [--collection New] [--k 7] [--db PATH] [--json]` | one row per item in the source collection: `id`, title, suggested leaf path, confidence (0–1), level (`high` ≥ 0.7 with ≥ 3 agreeing neighbors, `medium` ≥ 0.5, `low`, `none`, `unindexed`) |
 | `zrag search QUESTION [-k N] [--json]` | ranked results; `--json` gives `{"results": [...], "warning": ..., "mode": ...}` |
 
 `place` is a **read-only suggestion** built from the embedding index: each item's
@@ -51,7 +51,7 @@ listed as `unindexed`.
 - `zrag place --json`:
   ```json
   [{"id": 2525, "title": "...", "leaf_id": 130, "leaf_path": "Medical Imaging/Lung cancer",
-    "confidence": 0.83, "level": "high",
+    "confidence": 0.83, "support": 5, "level": "high",
     "neighbors": [{"id": 41, "title": "...", "leaf_path": "Medical Imaging/Lung cancer"}],
     "note": ""}, ...]
   ```
@@ -66,6 +66,7 @@ listed as `unindexed`.
   `New` into existing leaves; `place` only *suggests* — the user approves.
 - Every move is one batch (`batch <id>` on stdout, visible and revertible on the
   server's History page). One `file` call = one batch, no matter how many items.
+- A failed `describe` write-back (for example a read-only token) is remembered in `data/descriptions.jsonl`; fix the token and run `describe` again and the notes are written from the log without calling the LLM.
 - `describe` write-back is idempotent: an item that already has an "AI summary"
   note is skipped, never overwritten.
 

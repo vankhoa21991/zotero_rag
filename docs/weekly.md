@@ -47,7 +47,7 @@ zrag place --collection New --json
 ```
 
 Each row: the item's id/title, a suggested **existing leaf** (path), a confidence
-(0–1) and a level — `high` (≥ 0.7), `medium` (≥ 0.5), `low`, `none` (no similar
+(0–1) and a level — `high` (≥ 0.7 and at least 3 agreeing neighbors), `medium` (≥ 0.5), `low`, `none` (no similar
 neighbor) or `unindexed` (run step 2 first). The suggestion is a weighted vote:
 the item's nearest neighbors in the embedding index each vote for the leaves they
 are already filed in, weighted by cosine similarity. It never moves anything and

@@ -198,6 +198,33 @@ class ServerWritebackTest(unittest.TestCase):
         self.assertIn("write-back failed for A", err)
         self.assertIn("write-back failed for B", err)
 
+    def test_describe_retries_failed_writeback_from_log_without_llm(self):
+        self._use_zog([server_item("A", 1)], fail_writeback=True)
+        rc, out, err = self._run()
+        self.assertEqual(rc, 0)
+        self.assertEqual(self.zog.notes_posted, [])
+        # token fixed: the next run writes the note from the log, with no new LLM call
+        self.zog.fail_writeback = False
+        calls_before = len(self.llm.calls)
+        rc, out, err = self._run()
+        self.assertEqual(rc, 0)
+        self.assertEqual(self.zog.notes_posted, [(1, GOOD_SUMMARY)])
+        self.assertIn("written_back': 1", err)
+        self.assertEqual(len(self.llm.calls), calls_before)  # no new LLM call
+        # and a third run does nothing (marked ok in the log)
+        rc, out, err = self._run()
+        self.assertEqual(self.zog.notes_posted, [(1, GOOD_SUMMARY)])
+
+    def test_describe_failed_writeback_that_fails_again_stays_retryable(self):
+        self._use_zog([server_item("A", 1)], fail_writeback=True)
+        self._run()
+        rc, out, err = self._run()
+        self.assertEqual(rc, 0)
+        self.assertIn("write-back failed again for A", err)
+        self.zog.fail_writeback = False
+        rc, out, err = self._run()
+        self.assertEqual(self.zog.notes_posted, [(1, GOOD_SUMMARY)])
+
     def test_describe_no_writeback_flag_keeps_old_warning(self):
         self._use_zog([server_item("A", 1)])
         rc, out, err = self._run("--no-writeback")

@@ -120,6 +120,27 @@ class SuggestTest(unittest.TestCase):
         self.assertEqual(res["alternatives"], [{"leaf_id": 22, "score": 0.9}])
 
 
+    def test_suggest_ignores_neighbors_without_leaves(self):
+        # seven unfiled near neighbors must not use up the k=7 slots
+        unfiled = [(0.95 - i * 0.01, [], 400 + i) for i in range(7)]
+        res = place.suggest([1.0, 0.0], unfiled + [(0.8, [21], 201), (0.7, [21], 202)])
+        self.assertEqual(res["leaf_id"], 21)
+        self.assertEqual(res["neighbors"], [201, 202])
+        self.assertEqual(res["support"], 2)
+
+    def test_suggest_only_unfiled_neighbors_means_no_fit(self):
+        res = place.suggest([1.0, 0.0], [(0.9, [], 401), (0.8, [], 402)])
+        self.assertIsNone(res["leaf_id"])
+        self.assertEqual(res["support"], 0)
+
+    def test_level_for_needs_three_supporters_for_high(self):
+        self.assertEqual(place.level_for(1.0, 1), "medium")
+        self.assertEqual(place.level_for(1.0, 2), "medium")
+        self.assertEqual(place.level_for(1.0, 3), "high")
+        self.assertEqual(place.level_for(0.69, 5), "medium")
+        self.assertEqual(place.level_for(0.4, 5), "low")
+
+
 class LeafMembershipTest(unittest.TestCase):
     def test_leaf_membership_skips_source_collection_and_parents(self):
         m = place.leaf_membership(FakeZog(MEMBERS), skip_collection_id=10)
@@ -150,8 +171,10 @@ class PlaceTest(unittest.TestCase):
 
     def test_place_levels_high_medium_low(self):
         rows = {r["id"]: r for r in place.place(self.zog, self.idx, "New")}
-        # 301: both qualifying neighbors in AI/Agents -> confidence 1.0 -> high
-        self.assertEqual(rows[301]["level"], "high")
+        # 301: both qualifying neighbors in AI/Agents -> confidence 1.0, but only
+        # 2 supporters (< 3) -> medium, not high
+        self.assertEqual(rows[301]["level"], "medium")
+        self.assertEqual(rows[301]["support"], 2)
         self.assertEqual(rows[301]["leaf_id"], 21)
         self.assertGreaterEqual(rows[301]["confidence"], 0.9)
         # 302: neighbors at 75deg (Agents) and 145deg (NLP) -> ~0.56 -> medium
@@ -164,6 +187,31 @@ class PlaceTest(unittest.TestCase):
             if r["level"] != "unindexed":
                 self.assertIsInstance(r["confidence"], float)
                 self.assertTrue(r["neighbors"])
+
+
+class PlaceDilutionTest(unittest.TestCase):
+    """Unfiled neighbors that are closer than every filed one must not hide the filed ones."""
+
+    def test_place_skips_unfiled_neighbors_and_reports_support(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            idx = Index(os.path.join(tmp, "idx.db"))
+            members = {10: [_row(500)], 21: [_row(601), _row(602), _row(603)]}
+            ids = [500, 601, 602, 603] + list(range(700, 710))
+            for i in ids:
+                idx.upsert({"key": f"k{i}", "id": i, "title": f"t{i}"})
+            idx.set_vector("k500", _v(0))
+            for n, i in enumerate(range(700, 710)):   # 10 unfiled docs, closest to 500
+                idx.set_vector(f"k{i}", _v(1 + n))
+            for n, i in enumerate((601, 602, 603)):   # 3 filed docs, a bit further
+                idx.set_vector(f"k{i}", _v(20 + 5 * n))
+            rows = place.place(FakeZog(members), idx, "New")
+        row = rows[0]
+        self.assertEqual(row["leaf_id"], 21)
+        self.assertEqual(row["support"], 3)
+        self.assertEqual(row["level"], "high")
+        self.assertEqual(sorted(n["id"] for n in row["neighbors"]), [601, 602, 603])
 
 
 class PlaceCliTest(unittest.TestCase):
@@ -188,7 +236,7 @@ class PlaceCliTest(unittest.TestCase):
         db = os.path.join(self._tmp.name, "idx.db")
         rc, out, err = self._run("place", "--collection", "New", "--db", db)
         self.assertEqual(rc, 0, err)
-        for token in ("301", "high", "302", "medium", "303", "low", "102", "unindexed"):
+        for token in ("301", "302", "medium", "303", "low", "102", "unindexed"):
             self.assertIn(token, out)
         self.assertIn("AI/Agents", out)
 
@@ -199,7 +247,8 @@ class PlaceCliTest(unittest.TestCase):
         r301 = rows[0]
         self.assertEqual(
             set(r301.keys()),
-            {"id", "title", "leaf_id", "leaf_path", "confidence", "level", "neighbors", "note"})
+            {"id", "title", "leaf_id", "leaf_path", "confidence", "support", "level", "neighbors",
+             "note"})
         self.assertEqual(r301["leaf_path"], "AI/Agents")
         self.assertTrue(all(set(n.keys()) == {"id", "title", "leaf_path"} for n in r301["neighbors"]))
 

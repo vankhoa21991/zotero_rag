@@ -105,12 +105,16 @@ def run(items: list[dict], zot, llm, out_jsonl: str, md_dir: str, limit: int = 0
     """
     done = _read_log(out_jsonl)
     todo = []
+    retry_wb = []  # summarized earlier, but the note never reached the server
     for it in items:
         k = it.get("key", "")
         if keys is not None and k not in keys:
             continue
         if k in done:
-            if retry_failed and done[k].get("status") not in ("ok", "insufficient"):
+            d = done[k]
+            if writeback is not None and d.get("writeback") == "failed" and d.get("summary"):
+                retry_wb.append((it, d))
+            elif retry_failed and d.get("status") not in ("ok", "insufficient"):
                 todo.append(it)
             continue
         todo.append(it)
@@ -118,9 +122,19 @@ def run(items: list[dict], zot, llm, out_jsonl: str, md_dir: str, limit: int = 0
         todo = todo[:limit]
 
     counts: dict = {}
-    if not todo:
+    if not todo and not retry_wb:
         return counts
     with open(out_jsonl, "a") as out:
+        for it, d in retry_wb:  # no LLM call: the summary is already in the log
+            try:
+                writeback(it, d)
+                d = dict(d, writeback="ok")
+                out.write(json.dumps(d, ensure_ascii=False) + "\n")
+                out.flush()
+                counts["written_back"] = counts.get("written_back", 0) + 1
+            except ZogError as e:
+                counts["writeback_failed"] = counts.get("writeback_failed", 0) + 1
+                print(f"note: write-back failed again for {d['key']}: {e}", file=sys.stderr, flush=True)
         for n, it in enumerate(todo, 1):
             rec = describe_item(it, zot, llm, fetch=fetch, fetch_raw=fetch_raw,
                                 pdf_text=pdf_text, snapshot_map=snapshot_map, choose=choose)
@@ -131,6 +145,7 @@ def run(items: list[dict], zot, llm, out_jsonl: str, md_dir: str, limit: int = 0
                         if writeback(it, rec):
                             counts["written_back"] = counts.get("written_back", 0) + 1
                     except ZogError as e:
+                        rec["writeback"] = "failed"  # next run retries the note from the log
                         counts["writeback_failed"] = counts.get("writeback_failed", 0) + 1
                         print(f"note: write-back failed for {rec['key']}: {e}", file=sys.stderr,
                               flush=True)
