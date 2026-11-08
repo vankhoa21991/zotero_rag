@@ -27,10 +27,12 @@ machines — all in the step-by-step **[tutorial: docs/running.md](docs/running.
 | host it on a VPS (IONOS etc.), private or public, with every command | [docs/vps-deploy.md](docs/vps-deploy.md) |
 | save web pages and PDFs from my browser | [extension/README.md](extension/README.md) |
 | import rules, backups, Docker, HTTPS details | [docs/aikeytake-zog.md](docs/aikeytake-zog.md) |
+| how the collections are organized and how to re-organize | [docs/library-structure.md](docs/library-structure.md) |
+| current state: what is done, what is next | [docs/status.md](docs/status.md) |
 | what is planned next (agents, reorganization proposals) | [docs/superpowers/plans/2026-11-07-agent-connection-and-reorganization.md](docs/superpowers/plans/2026-11-07-agent-connection-and-reorganization.md) |
 
-What the web app does today: search (titles, notes, PDF text), collections with drag-and-drop
-(with undo), tags, notes, sorting by date added, a History page that can revert any change,
+What the web app does today: search (titles, notes, PDF text), nested collections with drag-and-drop,
+"+sub" and undo, tags, notes, sorting by date added, a History page that can revert any change,
 scoped API tokens, and a read-only Zotero importer you can re-run safely.
 
 ## zrag — search your library with an agent
@@ -40,9 +42,8 @@ your local Zotero library, with links. Everything runs on this machine: Zotero i
 through the `zot` CLI (from `zotero-agent`), summaries and embeddings come from local
 llama.cpp models, and the index is a single SQLite file.
 
-**Status:** the pipeline is built and tested end-to-end. The full summarization run
-(~2,400 items, hours) has not been done yet — search works on titles/abstracts/notes now
-and gets better as summaries land. See [PLAN.md](PLAN.md) for the plan and open questions.
+**Status:** the pipeline is built and tested end-to-end and the summarization run is done
+(1,823 summaries in `data/summaries`, also stored as "AI summary" notes on each item in aikeytake-zog). See [PLAN.md](PLAN.md) for the plan and open questions.
 
 ## aikeytake-zog — self-hosted library server
 

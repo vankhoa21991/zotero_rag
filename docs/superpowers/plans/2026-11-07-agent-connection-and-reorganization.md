@@ -1,5 +1,7 @@
 # Agent Connection and Reorganization Proposals Implementation Plan
 
+> **Status (2026-11-08): not started.** The library was reorganized by hand with scripts in the meantime (see `docs/library-structure.md`); the rule "items only in leaf collections" should be enforced by any proposal this plan produces. Overall state: `docs/status.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** (1) The existing RAG (`zrag`) reads the library from the aikeytake-zog server instead of Zotero, and agents can search it, list collections and add items; (2) an agent can propose a new collection structure and item placement, which the user reviews in the web UI and approves (all or in part) before anything moves, with one-click undo.
