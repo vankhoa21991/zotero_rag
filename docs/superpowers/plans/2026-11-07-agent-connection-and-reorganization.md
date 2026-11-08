@@ -1,6 +1,6 @@
 # Agent Connection and Reorganization Proposals Implementation Plan
 
-> **Status (2026-11-08): not started.** The library was reorganized by hand with scripts in the meantime (see `docs/library-structure.md`); the rule "items only in leaf collections" should be enforced by any proposal this plan produces. Overall state: `docs/status.md`.
+> **Status (2026-11-08): Task 4 done (zrag reads aikeytake-zog); Task 2 half done (`GET /api/items/{id}/text` + tests — the proposals API itself is not started).** The library was reorganized by hand with scripts in the meantime (see `docs/library-structure.md`); the rule "items only in leaf collections" should be enforced by any proposal this plan produces. Overall state: `docs/status.md`.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -103,9 +103,10 @@ Approval result: `{"batch": <id>|null, "applied": [op index], "skipped": [{"inde
   - `POST /api/proposals/{id}/approve` body `{"ops": [int] | null}` → approval result; `POST /api/proposals/{id}/reject` → `{"ok": true}`; **session only** (reuse the check that guards token minting; token → 403); `409` for state conflicts
   - `GET /api/items/{id}/text` → `{"id", "title", "url", "sources": [{"kind": "pdf"|"snapshot"|"note"|"abstract", "attachment_id": int|null, "text": str}]}` using the already-extracted text (read-scoped; 404 unknown; sources with empty text omitted; each text capped at 200,000 chars with `"truncated": true`)
 
-- [ ] **Step 1: Write failing tests**: `test_token_cannot_approve_or_reject` (read and write tokens → 403, proposal still pending), `test_post_proposal_requires_write_scope`, `test_post_proposal_422_names_op_index`, `test_post_duplicate_proposal_returns_existing_id`, `test_approve_endpoint_returns_result_and_batch_reverts`, `test_approve_conflict_is_409`, `test_item_text_returns_extracted_sources_and_caps`, `test_item_text_unknown_is_404`.
-- [ ] **Step 2: Run, expect FAIL.** **Step 3: Implement.** **Step 4: Run, expect PASS** (+ full suite).
-- [ ] **Step 5: Commit** `feat(aikeytake-zog): proposals API (agent proposes, session approves) and item text endpoint`.
+- [x] **Step 1: Write failing tests** — *item-text half done 2026-11-08*: `test_item_text_returns_pdf_note_and_abstract`, `test_item_text_caps_long_sources`, `test_item_text_unknown_item_404` (in `tests/aikeytake_zog/test_api.py`). Proposal-API tests not started.
+- [ ] **Step 2: Run, expect FAIL.** **Step 3: Implement** — *item-text half done*: `GET /api/items/{id}/text` in `api.py` (pdf/snapshot/note/abstract sources, 200k cap with `truncated`). Proposals API not started.
+- [ ] **Step 4: Run, expect PASS** (+ full suite) — *item-text half: passing*.
+- [ ] **Step 5: Commit** `feat(aikeytake-zog): proposals API (agent proposes, session approves) and item text endpoint` — *text endpoint committed with Task 4; proposals API outstanding*.
 
 ### Task 3: Web UI — review, approve, reject
 
@@ -134,9 +135,10 @@ Detail page contract: header (label, rationale as plain text, who proposed, when
 - Produces: `class ZogError(Exception)` with `kind` in `auth|forbidden|network|other` and a one-line message; `class ZogClient(base_url: str, token: str, opener=urllib.request.urlopen)` with `export_all() -> list[dict]` (pages through `GET /api/items`, 100 per page, until exhausted; returns rows shaped like what `items.py` expects from `zot export` — read `items.py`/`zotclient.py` and map: `key` = `zotero_key` or `zog-<id>`, plus `id`, title, creators, date/year, doi, url, abstract, tags, collections, itemType), `item_text(item_id) -> list[{kind, text}]` (`GET /api/items/{id}/text`), `notes(item_id)`, `collections() -> list[dict]` (`GET /api/collections`, tree flattened with `id, name, parent_id, path, count, total`), `add_item(url, title=None, tags=(), collection_id=None, note="") -> dict` (`POST /api/items` webpage, then tags/collection/note via the existing endpoints; duplicate check with `GET /api/items?url=`: if present return `{"id", "duplicate": True}` and create nothing), `post_proposal(label, rationale, ops) -> {"id", "duplicate"}`.
 - `make_source(env)` in `cli.py`: if `ZOG_URL` is set, build `ZogClient(ZOG_URL, ZOG_TOKEN)`; else the existing `ZotClient`. `describe` takes page/PDF/snapshot text from `item_text` before falling back to fetching the URL (keep the existing `choose_source` order and `source` values; an extracted PDF text maps to `source: pdf`, snapshot text to `snapshot`). Search results gain `"id"`; the index stores it (additive column or JSON field; existing indexes must still load — if a column is added, migrate on open).
 
-- [ ] **Step 1: Write failing tests** (fake server via `http.server` in a thread or injected `opener`): `test_export_pages_until_exhausted_and_maps_keys`, `test_key_falls_back_to_zog_id`, `test_item_text_returns_sources`, `test_http_errors_map_to_zogerror_kinds` (401→auth, 403→forbidden, connection refused→network, 500→other), `test_add_item_duplicate_creates_nothing`, `test_add_item_sends_tags_collection_note_in_order`, `test_cli_uses_zog_when_zog_url_set_and_zot_otherwise`, `test_search_result_includes_id`, `test_old_index_without_id_still_loads`.
-- [ ] **Step 2: Run, expect FAIL.** **Step 3: Implement.** **Step 4: Run all RAG unit tests, expect PASS.**
-- [ ] **Step 5: Real check** against a throwaway server on a copy of the library (fresh temp data dir with a few imported fixtures, or the scratch copy): `ZOG_URL=... ZOG_TOKEN=... uv run zrag describe --limit 3` with a fake LLM only if no real one is configured; record what you ran in the report.
+- [x] **Step 1: Write failing tests** (injected `opener`): `test_export_all_pages_until_short_page_and_maps_keys`, `test_item_full_and_item_text`, `test_collections_flattened_with_paths`, `test_error_kinds` (401→auth, 403→forbidden, refused→network, 500→other), `test_split_notes_*` (`tests/test_zogclient.py`); `test_index_from_zog_uses_notes_and_prunes_gone_items` + `test_id_column_migrates_old_schema`; search/cli shape tests updated for `id`. *Not implemented (belong to Tasks 1–2/5–6): `add_item`, `post_proposal`.*
+- [x] **Step 2: Run, expect FAIL.** **Step 3: Implement** (`zogclient.py`, `make_source()` in cli, server index path with summaries from "AI summary" notes + prune of trashed items, `choose_source_server` for describe, `id` column migrated on open).
+- [x] **Step 4: Run all RAG unit tests, expect PASS.** (356 passed, 2 skipped)
+- [x] **Step 5: Real check** — done against the LIVE server (better than a throwaway): minted read token `zrag-read` into gitignored `zrag.env`; `ZOG_URL=... zrag index` → 2221 items indexed from the server, 207 trashed docs pruned, ~19 s; then `zrag embed` + `zrag eval` (results below).
 - [ ] **Step 6: Commit** `feat(zrag): read the library from the aikeytake-zog server`.
 
 ### Task 5: RAG — agent commands `collections` and `add`

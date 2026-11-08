@@ -141,3 +141,38 @@ class BuildTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DeleteTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        from zotero_rag.index import Index
+        self.idx = Index(os.path.join(self.tmp.name, "t.db"))
+
+    def test_delete_removes_doc_and_fts_row(self):
+        self.idx.upsert(doc(key="X", title="delete me now"))
+        self.assertTrue(self.idx.delete("X"))
+        self.assertIsNone(self.idx.get("X"))
+        self.assertEqual(self.idx.search_fts("delete", 5), [])
+        self.assertFalse(self.idx.delete("X"))  # already gone
+
+    def test_id_column_migrates_old_schema(self):
+        # an index created before the id column exists must still open
+        db = os.path.join(self.tmp.name, "old.db")
+        import sqlite3
+
+        con = sqlite3.connect(db)
+        con.execute(
+            """CREATE TABLE docs (key TEXT PRIMARY KEY, title TEXT, creators TEXT, year TEXT, doi TEXT, url TEXT,
+               abstract TEXT, tags TEXT, summary TEXT, notes TEXT, annotations TEXT,
+               content_hash TEXT, vector BLOB)""")
+        con.execute("INSERT INTO docs (key, title) VALUES ('K', 'old')")
+        con.commit()
+        con.close()
+        from zotero_rag.index import Index
+
+        idx = Index(db)
+        self.assertIsNone(idx.get("K")["id"])
+        idx.upsert(doc(key="K", id=7))
+        self.assertEqual(idx.get("K")["id"], 7)

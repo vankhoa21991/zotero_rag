@@ -50,6 +50,27 @@ def _host(url: str) -> str:
         return ""
 
 
+def _live_url(url: str, fetch=extractors.fetch, fetch_raw=extractors.fetch_raw) -> tuple[Source | None, str]:
+    """Fetch text from a live URL: HTML page, GitHub README or notebook cells."""
+    host = _host(url)
+    if host in UNSUPPORTED_HOSTS:
+        return None, f"unsupported:{host}"
+    readme = extractors.github_readme_url(url)
+    if readme:
+        t, st = fetch_raw(readme)
+        kind = "readme"
+    elif url.lower().endswith(".ipynb"):
+        raw, st = fetch_raw(url)
+        t = extractors.notebook_to_text(raw)
+        kind = "notebook"
+    else:
+        t, st = fetch(url)
+        kind = "page"
+    if st == "ok" and len(t) >= MIN_TEXT:
+        return Source(kind, t), "ok"
+    return None, (st if st != "ok" else "too_short")
+
+
 def choose_source(item: dict, zot, fetch=extractors.fetch, fetch_raw=extractors.fetch_raw,
                   pdf_text=extractors.pdf_to_text, snapshot_map=None) -> tuple[Source | None, str]:
     """Return (source, "ok") or (None, reason)."""
@@ -69,23 +90,9 @@ def choose_source(item: dict, zot, fetch=extractors.fetch, fetch_raw=extractors.
 
     reason = "no_source"
     if url:
-        host = _host(url)
-        if host in UNSUPPORTED_HOSTS:
-            return None, f"unsupported:{host}"
-        readme = extractors.github_readme_url(url)
-        if readme:
-            t, st = fetch_raw(readme)
-            kind = "readme"
-        elif url.lower().endswith(".ipynb"):
-            raw, st = fetch_raw(url)
-            t = extractors.notebook_to_text(raw)
-            kind = "notebook"
-        else:
-            t, st = fetch(url)
-            kind = "page"
-        if st == "ok" and len(t) >= MIN_TEXT:
-            return Source(kind, t), "ok"
-        reason = st if st != "ok" else "too_short"
+        src, reason = _live_url(url, fetch=fetch, fetch_raw=fetch_raw)
+        if src is not None:
+            return src, "ok"
 
     # 4. saved Zotero snapshot (when the live URL failed or there is none)
     for _att_key, path in (snapshot_map or {}).get(key, []):
@@ -98,3 +105,35 @@ def choose_source(item: dict, zot, fetch=extractors.fetch, fetch_raw=extractors.
             return Source("snapshot", t[:extractors.MAX_TEXT]), "ok"
 
     return None, reason
+
+
+def choose_source_server(item: dict, zog, fetch=extractors.fetch, fetch_raw=extractors.fetch_raw) -> tuple[Source | None, str]:
+    """Server-based selection for aikeytake-zog items.
+
+    1. stored pdf/snapshot text (GET /api/items/{id}/text)
+    2. the item's own abstract
+    3. live URL fetch
+    """
+    from .zogclient import ZogError
+
+    if item.get("id"):
+        try:
+            data = zog.item_text(item["id"])
+        except ZogError:
+            data = None
+        for kind in ("pdf", "snapshot"):
+            for s in (data or {}).get("sources") or []:
+                if s["kind"] == kind and len(s["text"]) >= MIN_TEXT:
+                    return Source(kind, s["text"][:extractors.MAX_TEXT]), "ok"
+
+    ab = (item.get("abstract") or "").strip()
+    if ab:
+        return Source("abstract", ab[:extractors.MAX_TEXT]), "ok"
+
+    url = (item.get("url") or "").strip()
+    if url:
+        src, reason = _live_url(url, fetch=fetch, fetch_raw=fetch_raw)
+        if src is not None:
+            return src, "ok"
+        return None, reason
+    return None, "no_source"

@@ -65,26 +65,78 @@ def cmd_describe(args) -> int:
     return describe.main(argv)
 
 
+def make_source(env=None):
+    """ZogClient when ZOG_URL is set (aikeytake-zog is the source of truth),
+    else None (legacy zot path)."""
+    from .zogclient import ZogClient
+
+    env = os.environ if env is None else env
+    url = env.get("ZOG_URL")
+    if not url:
+        return None
+    return ZogClient(url, env.get("ZOG_TOKEN", ""))
+
+
+def _index_from_zog(zog, args) -> dict:
+    """Ingest from the aikeytake-zog server: summaries come from its 'AI summary'
+    notes, not from data/summaries."""
+    from . import items as items_mod
+    from .index import Index, build
+    from .zogclient import ZogError, split_notes
+
+    rows = zog.export_all()
+    top = items_mod.top_level(rows)
+    print(f"{len(rows)} rows, {len(top)} top-level items (from {zog.base_url})", file=sys.stderr)
+    notes, summaries = {}, {}
+    for i, row in enumerate(top, 1):
+        if i % 100 == 0 or i == len(top):
+            print(f"notes {i}/{len(top)}", file=sys.stderr, flush=True)
+        try:
+            full = zog.item_full(row["id"])
+        except ZogError as e:
+            print(f"note: skipping notes for {row['key']}: {e}", file=sys.stderr)
+            summaries[row["key"]] = ""  # never fall back to data/summaries
+            continue
+        summary, others = split_notes(full)
+        summaries[row["key"]] = summary
+        notes[row["key"]] = others
+        row["tags"] = full.get("tags") or []
+    idx = Index(os.path.expanduser(args.db))
+    counts = build(idx, top, args.md_dir, notes, None, summaries_by_key=summaries)
+    # prune docs whose item is gone from the server (trashed/deduped/removed)
+    live = {r["key"] for r in top}
+    pruned = [k for k in idx.all_keys() if k not in live]
+    for k in pruned:
+        idx.delete(k)
+    if pruned:
+        print(f"pruned {len(pruned)} docs no longer on the server", file=sys.stderr)
+    counts["pruned"] = len(pruned)
+    return counts
+
+
 def cmd_index(args) -> int:
     from . import items as items_mod
     from .index import Index, build
     from .zotclient import Zot
 
-    zot = Zot()
-    rows = _items_rows(args.items_json, zot)
-    top = items_mod.top_level(rows)
-    keys = [r["key"] for r in top if r.get("key")]
-    print(f"{len(rows)} rows, {len(top)} top-level items", file=sys.stderr)
+    zog = make_source()
+    if zog is not None:
+        counts = _index_from_zog(zog, args)
+    else:
+        zot = Zot()
+        rows = _items_rows(args.items_json, zot)
+        top = items_mod.top_level(rows)
+        keys = [r["key"] for r in top if r.get("key")]
+        print(f"{len(rows)} rows, {len(top)} top-level items", file=sys.stderr)
 
-    def progress(i, n, key):
-        if i % 50 == 0 or i == n:
-            print(f"notes/annotations {i}/{n}", file=sys.stderr, flush=True)
+        def progress(i, n, key):
+            if i % 50 == 0 or i == n:
+                print(f"notes/annotations {i}/{n}", file=sys.stderr, flush=True)
 
-    notes, anns = items_mod.load_notes_annotations(zot, keys, args.notes_cache, progress)
-    db = os.path.expanduser(args.db)
-    idx = Index(db)
-    counts = build(idx, top, args.md_dir, notes, anns)
-    print(f"index: {counts} -> {db}", file=sys.stderr)
+        notes, anns = items_mod.load_notes_annotations(zot, keys, args.notes_cache, progress)
+        idx = Index(os.path.expanduser(args.db))
+        counts = build(idx, top, args.md_dir, notes, anns)
+    print(f"index: {counts} -> {os.path.expanduser(args.db)}", file=sys.stderr)
     return 0
 
 

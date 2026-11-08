@@ -17,8 +17,12 @@ from .zotclient import Zot
 
 
 def describe_item(item: dict, zot, llm, fetch=extractors.fetch, fetch_raw=extractors.fetch_raw,
-                  pdf_text=extractors.pdf_to_text, snapshot_map=None) -> dict:
-    """One item -> record with key, url, title, source, status, summary, at."""
+                  pdf_text=extractors.pdf_to_text, snapshot_map=None, choose=None) -> dict:
+    """One item -> record with key, url, title, source, status, summary, at.
+
+    `choose` is an optional (item) -> (Source|None, status) override (server mode);
+    when absent the legacy zot-based choose_source is used.
+    """
     rec = {
         "key": item.get("key", ""),
         "url": item.get("url", ""),
@@ -28,8 +32,11 @@ def describe_item(item: dict, zot, llm, fetch=extractors.fetch, fetch_raw=extrac
         "summary": "",
         "at": time.strftime("%Y-%m-%dT%H:%M:%S"),
     }
-    src, status = choose_source(item, zot, fetch=fetch, fetch_raw=fetch_raw,
-                                pdf_text=pdf_text, snapshot_map=snapshot_map)
+    if choose is not None:
+        src, status = choose(item)
+    else:
+        src, status = choose_source(item, zot, fetch=fetch, fetch_raw=fetch_raw,
+                                    pdf_text=pdf_text, snapshot_map=snapshot_map)
     if src is None:
         rec["status"] = status
         return rec
@@ -87,7 +94,7 @@ def _read_log(out_jsonl: str) -> dict:
 def run(items: list[dict], zot, llm, out_jsonl: str, md_dir: str, limit: int = 0,
         keys: set | None = None, retry_failed: bool = False, fetch=extractors.fetch,
         fetch_raw=extractors.fetch_raw, pdf_text=extractors.pdf_to_text,
-        snapshot_map=None) -> dict:
+        snapshot_map=None, choose=None) -> dict:
     """Process items; append one log line each; write .md for successes. Returns {status: count}."""
     done = _read_log(out_jsonl)
     todo = []
@@ -109,7 +116,7 @@ def run(items: list[dict], zot, llm, out_jsonl: str, md_dir: str, limit: int = 0
     with open(out_jsonl, "a") as out:
         for n, it in enumerate(todo, 1):
             rec = describe_item(it, zot, llm, fetch=fetch, fetch_raw=fetch_raw,
-                                pdf_text=pdf_text, snapshot_map=snapshot_map)
+                                pdf_text=pdf_text, snapshot_map=snapshot_map, choose=choose)
             if rec["summary"]:
                 write_md(rec, md_dir)
             out.write(json.dumps(rec, ensure_ascii=False) + "\n")
@@ -128,6 +135,23 @@ def main(argv=None) -> int:
     ap.add_argument("--out", default="data/descriptions.jsonl")
     ap.add_argument("--retry-failed", action="store_true")
     a = ap.parse_args(argv)
+
+    # lazy import: cli imports describe only inside its cmd_* functions
+    from .cli import make_source
+    from .sources import choose_source_server
+
+    zog = make_source()
+    if zog is not None:
+        rows = zog.export_all()
+        top = items.top_level(rows)
+        print(f"{len(rows)} rows, {len(top)} top-level items (from {zog.base_url})", file=sys.stderr)
+        llm = LLM()
+        keys = set(a.keys.split(",")) if a.keys else None
+        counts = run(top, None, llm, a.out, a.md_dir, limit=a.limit, keys=keys,
+                     retry_failed=a.retry_failed,
+                     choose=lambda it: choose_source_server(it, zog))
+        print(f"done: {counts}", file=sys.stderr)
+        return 0
 
     zot = Zot()
     if os.path.exists(a.items_json):

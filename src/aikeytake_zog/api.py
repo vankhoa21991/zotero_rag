@@ -82,6 +82,16 @@ def get_auth(request: Request, conn: sqlite3.Connection = Depends(get_conn)) -> 
     return info
 
 
+TEXT_CAP = 200_000
+
+
+def _cap_text(text: str) -> tuple[str, bool]:
+    """(text, truncated): sources are capped so one giant PDF cannot bloat a response."""
+    if len(text) <= TEXT_CAP:
+        return text, False
+    return text[:TEXT_CAP], True
+
+
 def _require_session(actor: dict) -> None:
     """Token management is session-only: a leaked agent token must not mint tokens."""
     if not actor["is_session"]:
@@ -263,6 +273,42 @@ def build_router() -> APIRouter:
                 sig = auth.snapshot_sig(secret, att["id"])
                 att["view_url"] = f"/s/{att['id']}/{sig}/{quote(main, safe='/')}"
         return item
+
+    @r.get("/items/{item_id}/text")
+    def item_text(item_id: int, conn=Depends(get_conn)):
+        """Extracted text sources for one item: pdf/snapshot attachments (when
+        already extracted), note bodies, and the abstract. Read scope."""
+        item = items.get_item(conn, item_id)
+        if item is None:
+            raise HTTPException(status_code=404, detail="no such item")
+        sources = []
+        for att in item["attachments"]:
+            if att["kind"] not in ("pdf", "snapshot"):
+                continue
+            row = conn.execute(
+                "SELECT text FROM attachment_text WHERE attachment_id=?", (att["id"],)
+            ).fetchone()
+            if not row or not row["text"]:
+                continue
+            text, truncated = _cap_text(row["text"])
+            sources.append({
+                "kind": att["kind"], "attachment_id": att["id"],
+                "text": text, "truncated": truncated,
+            })
+        for note in item["notes"]:
+            if not (note.get("body") or "").strip():
+                continue
+            text, truncated = _cap_text(note["body"])
+            sources.append({
+                "kind": "note", "attachment_id": None, "note_id": note["id"],
+                "text": text, "truncated": truncated,
+            })
+        abstract = (item.get("abstract") or "").strip()
+        if abstract:
+            sources.append({"kind": "abstract", "attachment_id": None,
+                            "text": abstract, "truncated": False})
+        return {"id": item_id, "title": item["title"], "url": item.get("url") or "",
+                "sources": sources}
 
     @r.patch("/items/{item_id}")
     def patch_item(item_id: int, body: dict[str, Any], actor: dict = Depends(get_auth), conn=Depends(get_conn)):

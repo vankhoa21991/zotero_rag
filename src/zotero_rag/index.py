@@ -33,9 +33,12 @@ class Index:
         self.db = sqlite3.connect(path)
         self.db.execute(
             """CREATE TABLE IF NOT EXISTS docs (
-                key TEXT PRIMARY KEY, title TEXT, creators TEXT, year TEXT, doi TEXT, url TEXT,
+                key TEXT PRIMARY KEY, id INTEGER, title TEXT, creators TEXT, year TEXT, doi TEXT, url TEXT,
                 abstract TEXT, tags TEXT, summary TEXT, notes TEXT, annotations TEXT,
                 content_hash TEXT, vector BLOB)""")
+        if "id" not in [c[1] for c in self.db.execute("PRAGMA table_info(docs)")]:
+            # pre-aikeytake-zog indexes have no server item id
+            self.db.execute("ALTER TABLE docs ADD COLUMN id INTEGER")
         had_fts = self.db.execute(
             "SELECT 1 FROM sqlite_master WHERE name='docs_fts'").fetchone() is not None
         self.db.execute(
@@ -67,9 +70,9 @@ class Index:
         if old and old.get("content_hash") == h:
             return False
         self.db.execute(
-            "INSERT OR REPLACE INTO docs (key,title,creators,year,doi,url,abstract,tags,summary,"
-            "notes,annotations,content_hash,vector) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,NULL)",
-            (doc["key"], *[_s(doc.get(f)) for f in DOC_FIELDS], h))
+            "INSERT OR REPLACE INTO docs (key,id,title,creators,year,doi,url,abstract,tags,summary,"
+            "notes,annotations,content_hash,vector) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,NULL)",
+            (doc["key"], doc.get("id"), *[_s(doc.get(f)) for f in DOC_FIELDS], h))
         self._fts_sync(doc["key"], old, doc)
         return True
 
@@ -109,6 +112,22 @@ class Index:
             return None
         cols = [c[1] for c in self.db.execute("PRAGMA table_info(docs)")]
         return dict(zip(cols, row))
+
+    def all_keys(self) -> list[str]:
+        return [r[0] for r in self.db.execute("SELECT key FROM docs")]
+
+    def delete(self, key: str) -> bool:
+        """Remove a doc and its FTS row; True if it existed."""
+        old = self.get(key)
+        if old is None:
+            return False
+        rowid = self.db.execute("SELECT rowid FROM docs WHERE key=?", (key,)).fetchone()[0]
+        self.db.execute(
+            "INSERT INTO docs_fts(docs_fts, rowid, " + ", ".join(FTS_COLS) + ") VALUES ('delete', ?" + ",?" * len(FTS_COLS) + ")",
+            (rowid, *[_s(old.get(c)) for c in FTS_COLS]))
+        self.db.execute("DELETE FROM docs WHERE key=?", (key,))
+        self.db.commit()
+        return True
 
     def keys_without_vector(self) -> list[str]:
         return [r[0] for r in self.db.execute("SELECT key FROM docs WHERE vector IS NULL ORDER BY key")]
@@ -161,25 +180,36 @@ def _md_body(path: str) -> str:
 
 
 def build(index: Index, rows: list[dict], summaries_dir: str,
-          notes_by_key: dict | None = None, annotations_by_key: dict | None = None) -> dict:
-    """Fill the docs table from export rows + summaries + notes/annotations. Returns counts."""
+          notes_by_key: dict | None = None, annotations_by_key: dict | None = None,
+          summaries_by_key: dict | None = None) -> dict:
+    """Fill the docs table from export rows + summaries + notes/annotations. Returns counts.
+
+    `summaries_by_key` (server mode) wins over the .md files: a key present in
+    it uses its value even when empty, so data/summaries is never consulted for
+    those keys.
+    """
     notes_by_key = notes_by_key or {}
     annotations_by_key = annotations_by_key or {}
+    summaries_by_key = summaries_by_key if summaries_by_key is not None else {}
     counts = {"added": 0, "changed": 0, "unchanged": 0}
     for row in rows:
         key = row.get("key", "")
         if not key:
             continue
-        summary = ""
-        md = os.path.join(summaries_dir, key + ".md") if summaries_dir else ""
-        if md and os.path.exists(md):
-            try:
-                summary = _md_body(md)
-            except OSError:
-                summary = ""
+        if key in summaries_by_key:
+            summary = summaries_by_key[key]
+        else:
+            summary = ""
+            md = os.path.join(summaries_dir, key + ".md") if summaries_dir else ""
+            if md and os.path.exists(md):
+                try:
+                    summary = _md_body(md)
+                except OSError:
+                    summary = ""
         anns = annotations_by_key.get(key) or []
         doc = {
             "key": key,
+            "id": row.get("id"),  # aikeytake-zog item id (None for zot-based exports)
             "title": row.get("title", ""),
             "creators": row.get("creators") or [],
             "year": row.get("year", ""),

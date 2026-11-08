@@ -150,6 +150,7 @@ def find_papers(index, embedder, reranker, llm, question: str, k: int = 10, cand
                 passage, source = (row.get("title") or "")[:300], "title"
         results.append({
             "key": key,
+            "id": row.get("id"),
             "title": row.get("title") or "",
             "creators": row.get("creators") or "",
             "year": row.get("year") or "",

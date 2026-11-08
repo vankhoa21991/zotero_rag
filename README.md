@@ -38,12 +38,14 @@ scoped API tokens, and a read-only Zotero importer you can re-run safely.
 ## zrag — search your library with an agent
 
 Ask an AI agent a research question and get back the relevant papers and web pages from
-your local Zotero library, with links. Everything runs on this machine: Zotero is read
-through the `zot` CLI (from `zotero-agent`), summaries and embeddings come from local
-llama.cpp models, and the index is a single SQLite file.
+your library, with links. Everything runs on this machine: the library is read from
+**aikeytake-zog** (this repo's server — items, collections, tags, notes including the
+"AI summary" notes, extracted PDF/snapshot text), embeddings come from local llama.cpp
+models, and the index is a single SQLite file.
 
-**Status:** the pipeline is built and tested end-to-end and the summarization run is done
-(1,823 summaries in `data/summaries`, also stored as "AI summary" notes on each item in aikeytake-zog). See [PLAN.md](PLAN.md) for the plan and open questions.
+**Status:** the pipeline is built and tested end-to-end; the summarization run is done
+(1,823 "AI summary" notes on the server — `data/summaries/` is the legacy source and is
+no longer read). See [PLAN.md](PLAN.md) for the plan and open questions.
 
 ## aikeytake-zog — self-hosted library server
 
@@ -69,8 +71,11 @@ uv sync                    # one time; core deps (numpy) + the zrag command
 uv sync --extra embed      # optional: llama-cpp-python for vector + rerank search
 uv sync --extra pdf        # optional: pymupdf for PDF-first summarization
 
-# one-time ingest (~10 min: fetches your notes/annotations from zot and caches them)
-zrag index items.json          # export first if missing: zot search "" --all --json > items.json
+# point zrag at aikeytake-zog (the server must be running; see docs/running.md)
+set -a; source zrag.env; set +a      # ZOG_URL + ZOG_TOKEN (read scope, gitignored)
+
+# ingest from the server (~20 s: items + its 'AI summary' notes; prunes trashed items)
+zrag index
 
 # one-time vectors (~15 min)
 zrag embed
@@ -80,16 +85,17 @@ zrag search "price suggestion for online second-hand markets"
 zrag search "..." -k 5 --json  # machine-readable: {"results": [...], "warning": ..., "mode": ...}
 ```
 
-Each result carries `key, title, creators, year, doi, url, score, passage, source`
-(`source` is which field matched: summary/abstract/notes/tags/title). The
-`zotero://select/<key>` link opens the item in Zotero.
+Without `ZOG_URL` set, zrag falls back to the legacy path (the `zot` CLI +
+`items.json` + `data/summaries`). Each result carries `key, id, title, creators, year,
+doi, url, score, passage, source` (`id` is the aikeytake-zog item id; `source` is which
+field matched: summary/abstract/notes/tags/title).
 
 ## Commands
 
 | command | what it does |
 |---|---|
-| `zrag describe [ITEMS_JSON] [--limit N] [--keys A,B] [--retry-failed]` | stage 1: summarize items from their own content (PDF first, then web page, snapshot, README, notebook). Resumable via `data/descriptions.jsonl`. The full run takes hours; stop and re-run any time. |
-| `zrag index [ITEMS_JSON] [--db PATH]` | ingest items + summaries + notes/annotations into the SQLite index. Content-hashed: re-run after a describe batch to pick up new/changed docs (seconds, notes are cached). |
+| `zrag describe [--limit N] [--keys A,B] [--retry-failed]` | stage 1: summarize items from their own content (server PDF/snapshot text first, then abstract, then live web page). Resumable via `data/descriptions.jsonl`. The full run takes hours; stop and re-run any time. |
+| `zrag index [--db PATH]` | ingest from aikeytake-zog: items + its "AI summary" notes + tags, and prune docs whose item is gone (trashed/deduped). Content-hashed: re-run any time (~20 s). Without `ZOG_URL`: legacy zot path (`items.json` + `data/summaries`). |
 | `zrag embed [--db PATH]` | compute vectors for docs without one. |
 | `zrag search QUESTION [-k N] [--json] [--db PATH]` | hybrid search: BM25 + vector candidates, reranked. |
 | `zrag eval QUESTIONS.jsonl [--db PATH]` | hit@5/10 for the question set, keyword-only vs full pipeline. |
@@ -112,6 +118,7 @@ reranker `bge-reranker-v2-m3-Q8_0`, LLM `qwen3.8-27b` on the llama.cpp server.
 
 | variable | default |
 |---|---|
+| `ZOG_URL` / `ZOG_TOKEN` | unset → legacy zot path; set (see `zrag.env`) → aikeytake-zog is the source of truth |
 | `LLM_KEY` | required for summarization and the judge fallback |
 | `LLM_BASE` / `LLM_MODEL` | `http://127.0.0.1:8080/v1` / `qwen3.8-27b` |
 | `EMBED_MODEL` / `RERANK_MODEL` | the GGUF paths above |
@@ -132,7 +139,8 @@ them to 20-30 of your own. On those 6: full pipeline hit@5 = 1.00, keyword-only 
 ```
 README.md  PLAN.md
 src/zotero_rag/
-  zotclient.py     `zot` CLI wrapper (all Zotero access goes through here)
+  zogclient.py     aikeytake-zog HTTP client (export, item text, notes, collections)
+  zotclient.py     `zot` CLI wrapper (legacy path without ZOG_URL)
   items.py         export filtering; notes/annotations fetch + cache
   llm.py           OpenAI-compatible client for the local llama.cpp server
   extractors.py    text extraction: web page, PDF, snapshot, README, notebook
@@ -146,8 +154,8 @@ src/zotero_rag/
   cli.py           zrag command line
 tests/             offline unit tests (fake run/fake LLM/fake embedder); real-model tests skip unless available
 data/
-  items.json       full library export (gitignored — it is your whole library)
-  summaries/<key>.md   one summary per item, front matter has title/url/zotero link/source
+  items.json       legacy full library export (gitignored; only used without ZOG_URL)
+  summaries/<key>.md   legacy summaries (summaries now live on the server as 'AI summary' notes)
   descriptions.jsonl   describe status log and resume file
   notes_annotations.json   cache of notes/annotations fetches (gitignored)
 eval/questions.jsonl     evaluation questions
@@ -155,6 +163,11 @@ eval/questions.jsonl     evaluation questions
 
 ## Things to know
 
+- zrag reads aikeytake-zog over HTTP (read-scope token in the gitignored `zrag.env`);
+  the server must be running for `zrag index`/`describe`. Search and eval work offline
+  once the index is built.
+- Standalone attachments/notes (96 items with no parent) are not indexed, same as in
+  the legacy zot path.
 - Summaries are written by a local model from the page/PDF text and can contain mistakes.
   Spot-check a sample before relying on the whole set.
 - The full describe run makes about 2,300 outbound web requests.

@@ -115,7 +115,7 @@ class FindPapersTest(SearchTest):
         r = out["results"][0]
         self.assertEqual(
             set(r.keys()),
-            {"key", "title", "creators", "year", "doi", "url", "score", "passage", "source"})
+            {"key", "id", "title", "creators", "year", "doi", "url", "score", "passage", "source"})
 
     def test_candidates_union_both_sides(self):
         import numpy as np

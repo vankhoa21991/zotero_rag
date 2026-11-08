@@ -5,3 +5,4 @@ data/
 items.json
 zotero-import-report-*.txt
 zotero-import-report-*.json
+zrag.env

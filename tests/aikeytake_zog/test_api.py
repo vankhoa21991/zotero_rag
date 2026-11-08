@@ -422,3 +422,53 @@ def test_api_items_url_and_q_is_400(env):
     c, h = env["client"], _h(env["write"])
     r = c.get("/api/items", params={"url": "https://a.com/x", "q": "foo"}, headers=h)
     assert r.status_code == 400
+
+
+def _seed_pdf_text(conn, item_id, text):
+    att = conn.execute(
+        "INSERT INTO attachments(item_id, kind, filename, sha256, size, ext, missing, text_extracted)"
+        " VALUES(?, 'pdf', 'p.pdf', 'aa'*32, 100, 'pdf', 0, 1)", (item_id,)
+    ).lastrowid
+    conn.execute("INSERT INTO attachment_text(attachment_id, text) VALUES(?,?)", (att, text))
+    return att
+
+
+def test_item_text_returns_pdf_note_and_abstract(env):
+    c = env["client"]
+    h = _h(env["read"])
+    iid = c.post("/api/items", json={"title": "T", "abstract": "  an abstract  "},
+                 headers=_h(env["write"])).json()["id"]
+    c.post(f"/api/items/{iid}/notes", json={"body": "<p>note body</p>"}, headers=_h(env["write"]))
+    conn = zog_db.connect(env["settings"].db_path)
+    try:
+        _seed_pdf_text(conn, iid, "pdf page one")
+        conn.commit()
+    finally:
+        conn.close()
+    r = c.get(f"/api/items/{iid}/text", headers=h)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["id"] == iid and body["title"] == "T"
+    kinds = {s["kind"]: s for s in body["sources"]}
+    assert set(kinds) == {"pdf", "note", "abstract"}
+    assert kinds["pdf"]["text"] == "pdf page one" and kinds["pdf"]["truncated"] is False
+    assert kinds["note"]["text"] == "<p>note body</p>"
+    assert kinds["abstract"]["text"] == "an abstract"
+
+
+def test_item_text_caps_long_sources(env):
+    c = env["client"]
+    h = _h(env["read"])
+    iid = c.post("/api/items", json={"title": "T"}, headers=_h(env["write"])).json()["id"]
+    conn = zog_db.connect(env["settings"].db_path)
+    try:
+        _seed_pdf_text(conn, iid, "x" * (200_000 + 50))
+        conn.commit()
+    finally:
+        conn.close()
+    src = c.get(f"/api/items/{iid}/text", headers=h).json()["sources"][0]
+    assert src["truncated"] is True and len(src["text"]) == 200_000
+
+
+def test_item_text_unknown_item_404(env):
+    assert env["client"].get("/api/items/9999/text", headers=_h(env["read"])).status_code == 404

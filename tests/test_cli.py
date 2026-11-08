@@ -60,7 +60,7 @@ class CliTest(unittest.TestCase):
         for r in payload["results"]:
             self.assertEqual(
                 set(r.keys()),
-                {"key", "title", "creators", "year", "doi", "url", "score", "passage", "source"})
+                {"key", "id", "title", "creators", "year", "doi", "url", "score", "passage", "source"})
 
     def test_search_human_output(self):
         rc, out, err = self.run_cli("search", "zebra", "--db", self.db)
@@ -90,3 +90,65 @@ class CliTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FakeZog:
+    base_url = "http://fake-zog"
+
+    def __init__(self):
+        self.fetched = []
+
+    def export_all(self):
+        return [
+            {"id": 1, "key": "A", "title": "zebra alpha v2", "creators": ["c"], "year": "2026",
+             "doi": "", "url": "", "abstract": "abstract A", "type": "document"},
+            {"id": 2, "key": "C", "title": "gamma new", "creators": [], "year": "",
+             "doi": "", "url": "", "abstract": "", "type": "document"},
+        ]
+
+    def item_full(self, iid):
+        self.fetched.append(iid)
+        if iid == 1:
+            return {"tags": ["t1"], "notes": [
+                {"id": 1, "kind": "note", "body": "<h3>AI summary</h3><p>server summary A</p>"},
+                {"id": 2, "kind": "note", "body": "<p>my own note</p>"},
+            ]}
+        return {"tags": [], "notes": []}
+
+
+class CliZogIndexTest(CliTest):  # noqa: F811 - reuses run_cli; own setUp below
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        from zotero_rag.index import Index
+
+        self.db = os.path.join(self.tmp.name, "t.db")
+        idx = Index(self.db)
+        idx.upsert(doc(key="A", title="zebra alpha", summary="stale"))
+        idx.upsert(doc(key="GONE", title="trashed item"))
+        self.md_dir = os.path.join(self.tmp.name, "mds")
+        os.makedirs(self.md_dir)
+        with open(os.path.join(self.md_dir, "A.md"), "w") as f:
+            f.write("# A\nlocal md summary\n")
+        self.zog = FakeZog()
+        self._orig = cli.make_source
+        cli.make_source = lambda env=None: self.zog
+        self.addCleanup(self._restore)
+
+    def _restore(self):
+        cli.make_source = self._orig
+
+    def test_index_from_zog_uses_notes_and_prunes_gone_items(self):
+        rc, out, err = self.run_cli("index", "--db", self.db, "--md-dir", self.md_dir)
+        self.assertEqual(rc, 0)
+        from zotero_rag.index import Index
+
+        idx = Index(self.db)
+        a = idx.get("A")
+        self.assertEqual(a["summary"], "server summary A")  # not the local .md
+        self.assertEqual(a["notes"], "my own note")
+        self.assertEqual(a["id"], 1)
+        self.assertEqual(a["tags"], "t1")
+        self.assertIsNone(idx.get("GONE"))  # pruned: no longer on the server
+        self.assertIsNotNone(idx.get("C"))  # new server item indexed
+        self.assertIn("pruned 1 docs", err)
