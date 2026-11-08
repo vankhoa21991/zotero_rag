@@ -204,6 +204,9 @@ The data lives in a Docker volume. Publish the port as `127.0.0.1:8321:8321` in
 
 ## 8. Use it from another machine
 
+> Want it on a rented server (VPS, e.g. IONOS)? Follow [vps-deploy.md](vps-deploy.md): it compares the
+> private (Tailscale) and public (domain + HTTPS) setups and has every command.
+
 You run **one** server and open it from every machine; nothing is copied around. There are three
 ways to make the server reachable. **Never put the plain port on the open internet** — it has one
 password and no rate limiting.

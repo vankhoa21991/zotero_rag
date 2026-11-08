@@ -24,6 +24,7 @@ machines — all in the step-by-step **[tutorial: docs/running.md](docs/running.
 |---|---|
 | install, start, import Zotero, use the app | [docs/running.md](docs/running.md) |
 | run it as a service, use it over a VPN, move or back up my data | [docs/running.md](docs/running.md) sections 7–9 |
+| host it on a VPS (IONOS etc.), private or public, with every command | [docs/vps-deploy.md](docs/vps-deploy.md) |
 | save web pages and PDFs from my browser | [extension/README.md](extension/README.md) |
 | import rules, backups, Docker, HTTPS details | [docs/aikeytake-zog.md](docs/aikeytake-zog.md) |
 | what is planned next (agents, reorganization proposals) | [docs/superpowers/plans/2026-11-07-agent-connection-and-reorganization.md](docs/superpowers/plans/2026-11-07-agent-connection-and-reorganization.md) |
