@@ -1,8 +1,7 @@
 # Agent Connection and Reorganization Proposals Implementation Plan
 
-> **Status (2026-11-08): Task 4 done (zrag reads aikeytake-zog); Task 2 half done (`GET /api/items/{id}/text` + tests — the proposals API itself is not started).** The library was reorganized by hand with scripts in the meantime (see `docs/library-structure.md`); the rule "items only in leaf collections" should be enforced by any proposal this plan produces. Overall state: `docs/status.md`.
-
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Status (2026-11-08, revised): Task 4 done (commits 52a64f1, b60c03e, e7ba88a). Work from "Revision R2" below; it replaces the order of the remaining tasks.**
+> The library is organized by hand (leaf-only rule, `docs/library-structure.md`) and the weekly flow is an agent runbook (`docs/weekly.md`): summarize what is in `New`, suggest an existing leaf per item, ask the user, move. Overall state: `docs/status.md`.
 
 **Goal:** (1) The existing RAG (`zrag`) reads the library from the aikeytake-zog server instead of Zotero, and agents can search it, list collections and add items; (2) an agent can propose a new collection structure and item placement, which the user reviews in the web UI and approves (all or in part) before anything moves, with one-click undo.
 
@@ -11,6 +10,86 @@
 **Tech Stack:** Python 3.10+, FastAPI/Jinja/SQLite (server, existing), stdlib `urllib` for the client (as `zotclient.py` does), numpy (clustering), the existing `LLM` client in `llm.py`, `unittest` for `tests/test_*.py` (RAG) and pytest for `tests/aikeytake_zog/`. Playwright via `uv run --with playwright` for the final check only.
 
 **Spec:** `docs/superpowers/specs/2026-11-01-library-server-design.md` (project 3: lines 17, 41, 75, 97 — agent proposes, user approves before anything moves, whole batch revertable, proposal state in the change log). The spec says a proposal "is a batch whose state is proposed"; this plan deviates deliberately, see Decision 1.
+
+## Revision R2 (2026-11-08) — what to build now, in this order
+
+The user's intended weekly flow (see `docs/weekly.md`): items are saved to the `New` collection; an agent writes each item's
+"AI summary" note, proposes an **existing leaf** for it, asks the user in chat, then moves it. The user never drags items.
+So the order is: **R-A** summary write-back, **R-B** `collections` / `add` / `file`, **R-C** `place`, **R-D** end-to-end check and docs.
+Old Tasks 1–3 (proposals store, API, review page) are **kept but deferred** (optional browser approval instead of a chat reply).
+Old Task 5 is **superseded by R-B**, old Task 6 (`reorganize` clustering) is **deferred**: it invents new groups, the weekly flow assigns to existing leaves.
+
+Constraints that apply to R-A to R-D (in addition to Global Constraints below):
+- **Leaf-only rule**: any command that puts an item into a collection must refuse a collection that has children (exit 1, one line `zrag: "<path>" is not a leaf collection`). Source: `docs/library-structure.md`.
+- **Only the `New` flow**: `place` and `describe --collection` operate on the items of one collection; no command touches other collections' items unless asked with an explicit id.
+- **Never delete** items, notes or collections. Never overwrite an existing "AI summary" note.
+- Server API used (all exist today): `GET /api/items?collection=<id>&limit=200&offset=N`, `GET /api/items/{id}` (notes, tags, collections), `POST /api/items/{id}/notes` body `{"body": html}` (write scope), `POST /api/collections/move-items` body `{"item_ids","from_id","to_id"}`, `POST /api/collections/{id}/items` body `{"item_ids"}`, `GET /api/collections` (tree with `id,name,parent_id,count,total,children`), `POST /api/items` (create).
+- Tests: `unittest`, offline, injected `opener` fake as in `tests/test_zogclient.py`; no network, no LLM, no model files. Run: `uv run --extra server --extra pdf --with numpy python -m pytest tests -q` (374 passing at the start).
+- Error contract for every new command: `ZogError` → one line `zrag: <message>` on stderr, exit 1; `ZOG_URL` unset → exit 2 `set ZOG_URL and ZOG_TOKEN`; a read-scope token on a writing command → exit 1 `zrag: this command needs a write token`.
+
+### Task R-A: Summary write-back (blocker for the weekly flow)
+
+**Files:** Modify `src/zotero_rag/zogclient.py`, `src/zotero_rag/describe.py`, `src/zotero_rag/cli.py`; tests `tests/test_zogclient.py`, `tests/test_describe.py`, `tests/test_cli.py`.
+
+**Interfaces:**
+- Produces in `zogclient.py`:
+  - `summary_note_html(text: str) -> str` → `"<h3>AI summary</h3>" + "".join(f"<p>{html.escape(p)}</p>")` for each non-empty paragraph (split on blank lines, whitespace collapsed). Same format `scripts/import_summaries.py` writes; `AI_SUMMARY_MARK` already exists.
+  - `ZogClient.add_note(item_id: int, body_html: str) -> int` (`POST /api/items/{id}/notes`, returns note id).
+  - `ZogClient.add_summary(item_id: int, text: str) -> int | None`: reads `item_full(item_id)`; if any note body starts with `AI_SUMMARY_MARK` returns `None` without writing; else `add_note(item_id, summary_note_html(text))`.
+  - `ZogClient.items_in(collection_id: int) -> list[dict]`: all items directly in a collection (pages `GET /api/items?collection=<id>` 200 at a time), rows normalized like `export_all`.
+  - `ZogClient.find_collection(name_or_path: str) -> dict`: matches a flattened `collections()` entry by exact id (digits), exact path (`A/B/C`), or a unique name; raises `ZogError("no collection …"|"ambiguous …", "other")`.
+- `describe` (server mode): `--collection NAME_OR_ID` restricts to `items_in(find_collection(...)["id"])`; after a summary is written to `data/summaries/<key>.md`, also call `add_summary` unless `--no-writeback`. A write failure (read token → forbidden, network) prints one stderr line, keeps the `.md`, and continues; the final counts include `"written_back": n, "writeback_failed": n`. Remove the "NOT indexed until written back" warning when write-back is enabled (keep it with `--no-writeback`).
+
+- [ ] **Step 1: Tests (names verbatim):** `test_summary_note_html_escapes_and_splits_paragraphs`, `test_add_summary_skips_when_summary_exists`, `test_add_summary_posts_note_with_mark`, `test_items_in_pages_until_short_page`, `test_find_collection_by_id_path_and_unique_name_and_ambiguous` (`tests/test_zogclient.py`); `test_describe_writes_back_note_and_counts_it`, `test_describe_forbidden_writeback_keeps_md_and_continues`, `test_describe_no_writeback_flag_keeps_old_warning`, `test_describe_collection_filter_only_processes_that_collection` (`tests/test_describe.py` / `test_cli.py`).
+- [ ] **Step 2: Run, expect FAIL. Step 3: Implement. Step 4: Run all tests, expect PASS.**
+- [ ] **Step 5: Real check on a scratch copy** (never the live library): copy the server data dir, run a scratch server, mint a write token, run `zrag describe --collection New --limit 2` with the real LLM, confirm the notes appear on the items and a second run adds nothing.
+- [ ] **Step 6: Commit** `feat(zrag): describe writes AI summaries back to the server as notes`.
+
+### Task R-B: Agent commands `collections`, `add`, `file`
+
+**Files:** Modify `src/zotero_rag/cli.py`, `src/zotero_rag/zogclient.py`; tests `tests/test_cli.py`, `tests/test_zogclient.py`.
+
+**Interfaces:**
+- `zrag collections [--json]`: indented tree with `id`, name, direct and total counts; `--json` prints `ZogClient.collections()` plus `"leaf": bool` per entry.
+- `zrag add URL [--title T] [--tag X ...] [--collection ID|PATH] [--note TEXT] [--json]`: creates a webpage item (`POST /api/items`; read `items.create_item` for accepted fields); duplicate URL (`GET /api/items?url=`) → prints `already in library: <id>`, exit 0; default collection is `New`; refuses a non-leaf collection.
+- `zrag file ID [ID ...] --to ID|PATH [--from ID|PATH]`: moves (`--from` given: `POST /api/collections/move-items`) or adds (no `--from`: `POST /api/collections/{to}/items`) the items; refuses a non-leaf `--to`; prints the batch id on stdout (`batch 2711`) so the user can undo it from History; exit 1 on 404 with the server's message.
+- `ZogClient.create_item(fields: dict) -> int`, `.move_items(item_ids, from_id, to_id) -> int` (batch id), `.add_to_collection(collection_id, item_ids) -> int` (batch id).
+
+- [ ] **Step 1: Tests (names verbatim):** `test_collections_prints_tree_with_counts`, `test_collections_json_marks_leaves`, `test_add_creates_item_in_new_by_default`, `test_add_duplicate_exits_zero_and_reports_it`, `test_add_refuses_non_leaf_collection`, `test_file_moves_between_collections_and_prints_batch`, `test_file_without_from_adds`, `test_file_refuses_non_leaf_target`, `test_read_token_gets_clear_error_on_add_and_file`, `test_zog_url_unset_exits_2`.
+- [ ] **Step 2–4: Run FAIL, implement, run PASS.**
+- [ ] **Step 5: Commit** `feat(zrag): collections, add and file commands for agents`.
+
+### Task R-C: `zrag place` — suggest an existing leaf for each item in a collection
+
+**Files:** Create `src/zotero_rag/place.py`, `tests/test_place.py`; Modify `src/zotero_rag/cli.py`, `tests/test_cli.py`.
+
+**Interfaces:**
+- `place.py`:
+  - `leaf_membership(zog) -> dict[int, list[int]]`: item id → ids of the **leaf** collections it is in (walk `collections()` for leaves, page `items_in` for each; skip the source collection and any non-leaf).
+  - `suggest(vector, neighbors, k=7, min_sim=0.45) -> dict`: `neighbors` = `[(similarity: float, leaf_ids: list[int], item_id: int)]` sorted by similarity; takes the top `k` with `similarity >= min_sim`, each votes its similarity for each of its leaves; returns `{"leaf_id": int|None, "confidence": float, "alternatives": [{"leaf_id","score"}], "neighbors": [item_id,...]}`. `confidence` = winner's share of total vote weight (0–1); `leaf_id` is `None` when no neighbor reaches `min_sim` (means "no fit — leave in New or propose a new group").
+  - `place(zog, index, collection, k=7, min_sim=0.45, min_confidence=0.5) -> list[dict]`: for each item in `collection` that has a vector in the index, rows `{"id","title","leaf_id","leaf_path","confidence","level": "high"|"medium"|"low"|"none","neighbors":[{"id","title","leaf_path"}]}` (`high` ≥0.7, `medium` ≥ `min_confidence`, else `low`; `none` when `leaf_id is None`). Items without a vector get `level: "unindexed"` and a note to run `zrag index && zrag embed` first.
+- CLI: `zrag place [--collection New] [--k 7] [--json]`. Default prints a table (id, title, suggested leaf, confidence, level); `--json` prints the rows. Read scope is enough. Never moves anything.
+
+- [ ] **Step 1: Tests (names verbatim):** `test_suggest_picks_majority_leaf_weighted_by_similarity`, `test_suggest_returns_none_when_no_neighbor_above_min_sim`, `test_suggest_item_in_two_leaves_votes_for_both`, `test_leaf_membership_skips_source_collection_and_parents`, `test_place_marks_unindexed_items`, `test_place_levels_high_medium_low`, `test_cli_place_prints_table_and_json` (fake `ZogClient`, small hand-made index with 2D vectors).
+- [ ] **Step 2–4: Run FAIL, implement (numpy cosine over `docs.vector`; read how `search.py` loads vectors), run PASS.**
+- [ ] **Step 5: Real check (read-only):** `zrag place --collection <a populated leaf> --json` on the live index with `ZOG_URL` set; eyeball that the suggestion for items already filed matches their real leaf for most of them (record the hit rate in the report; no writes).
+- [ ] **Step 6: Commit** `feat(zrag): place command suggests an existing leaf per item`.
+
+### Task R-D: End-to-end check, runbook and docs
+
+**Files:** Create `scripts/weekly_check.py`, `docs/agent-usage.md`; Modify `docs/weekly.md`, `docs/status.md`, `README.md`.
+
+- [ ] **Step 1: `scripts/weekly_check.py <out_dir>`**: temp data dir, temp server on a random port, password + write token + read token via the CLI; seed ~60 items in 3 topics filed into 3 leaves, a `New` collection with 6 new items (2 per topic) and fake deterministic embeddings/LLM. Run in order: `zrag describe --collection New` (write-back) → `zrag index && zrag embed` → `zrag place --json` (assert each new item suggests its topic's leaf) → `zrag file … --from New --to …` → assert `New` is empty, the items sit only in the approved leaves, the parent collections hold no items, every move is a batch. Exit non-zero on any failed check.
+- [ ] **Step 2: `docs/agent-usage.md`**: commands, output shapes, the rules from "Constraints" above, error codes; the exact weekly sequence (`describe --collection New`, `index`, `embed`, `place`, ask the user, `file`).
+- [ ] **Step 3: Update `docs/weekly.md`** so the procedure uses `zrag describe/place/file` instead of raw API calls (keep the raw API form as a fallback appendix); remove the "Known gaps" that R-A/R-B fix. Update `docs/status.md` and README.
+- [ ] **Step 4: Run everything** (server suite, RAG tests, `weekly_check.py`); record counts.
+- [ ] **Step 5: Commit** `docs: weekly agent flow with describe, place and file commands`.
+
+### Deferred (keep, do not build now)
+
+Tasks 1–3 (proposals store, API, review page) and Task 6 (`reorganize`) below stay as written for a later round: browser approval instead of a chat reply, and clustering to discover new groups. If built later, `place` output can be posted as a proposal.
+
+---
 
 ## Global Constraints
 
@@ -139,9 +218,9 @@ Detail page contract: header (label, rationale as plain text, who proposed, when
 - [x] **Step 2: Run, expect FAIL.** **Step 3: Implement** (`zogclient.py`, `make_source()` in cli, server index path with summaries from "AI summary" notes + prune of trashed items, `choose_source_server` for describe, `id` column migrated on open).
 - [x] **Step 4: Run all RAG unit tests, expect PASS.** (356 passed, 2 skipped)
 - [x] **Step 5: Real check** — done against the LIVE server (better than a throwaway): minted read token `zrag-read` into gitignored `zrag.env`; `ZOG_URL=... zrag index` → 2221 items indexed from the server, 207 trashed docs pruned, ~19 s; `zrag embed` → all 2221 vectors (~40 min CPU); `zrag eval` on the 6 starter questions: full pipeline hit@5=1.00, keyword-only 0.17 (same as the legacy index — the reorientation lost nothing). This run also exposed and fixed an FTS desync bug in `index.py` (stale postings after replace; see commit `fix(index): FTS 'delete' must target the pre-replace rowid`).
-- [ ] **Step 6: Commit** `feat(zrag): read the library from the aikeytake-zog server`.
+- [x] **Step 6: Commit** — done (52a64f1, fixes b60c03e, e7ba88a).
 
-### Task 5: RAG — agent commands `collections` and `add`
+### Task 5: RAG — agent commands `collections` and `add` — SUPERSEDED by R-B (do not build from this section)
 
 **Files:**
 - Modify: `src/zotero_rag/cli.py`, `tests/test_cli.py`
@@ -155,7 +234,7 @@ Detail page contract: header (label, rationale as plain text, who proposed, when
 - [ ] **Step 2: Run, expect FAIL.** **Step 3: Implement.** **Step 4: Run, expect PASS.**
 - [ ] **Step 5: Commit** `feat(zrag): collections and add commands for agents`.
 
-### Task 6: RAG — `reorganize` (cluster, name, propose)
+### Task 6: RAG — `reorganize` (cluster, name, propose) — DEFERRED (see Revision R2)
 
 **Files:**
 - Create: `src/zotero_rag/cluster.py`, `src/zotero_rag/reorganize.py`, `tests/test_cluster.py`, `tests/test_reorganize.py`
@@ -173,7 +252,7 @@ Detail page contract: header (label, rationale as plain text, who proposed, when
 - [ ] **Step 2: Run, expect FAIL.** **Step 3: Implement.** **Step 4: Run, expect PASS** (RAG unit tests + server suite).
 - [ ] **Step 5: Commit** `feat(zrag): reorganize command that proposes a structure for approval`.
 
-### Task 7: End-to-end check and docs
+### Task 7: End-to-end check and docs — SUPERSEDED by R-D (do not build from this section)
 
 **Files:**
 - Create: `scripts/reorg_check.py`, `docs/agent-usage.md`
