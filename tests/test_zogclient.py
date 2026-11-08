@@ -177,6 +177,29 @@ class ZogClientTest(unittest.TestCase):
             c.find_collection("Nope")
         self.assertIn("no collection", str(cm2.exception))
 
+    def test_create_item_move_and_add_to_collection_post_bodies(self):
+        op = FakeOpener({
+            ("POST", f"{BASE}/api/items"): {"id": 42},
+            ("POST", f"{BASE}/api/collections/move-items"): {"batch": 7},
+            ("POST", f"{BASE}/api/collections/5/items"): {"batch": 8},
+            ("GET", f"{BASE}/api/items?url=https%3A%2F%2Fe.com%2Fx"): [{"id": 9}],
+            ("GET", f"{BASE}/api/collections"): [
+                {"id": 1, "name": "A", "parent_id": None, "count": 0, "total": 1, "children": []},
+                {"id": 5, "name": "B", "parent_id": 1, "count": 0, "total": 0, "children": []},
+            ],
+        })
+        c = ZogClient(BASE, "tok", opener=op)
+        self.assertEqual(c.create_item({"type": "webpage", "url": "https://e.com/x", "title": "T"}), 42)
+        self.assertEqual(c.move_items([1, 2], 3, 5), 7)
+        self.assertEqual(c.add_to_collection(5, [9]), 8)
+        self.assertEqual(c.find_by_url("https://e.com/x")[0]["id"], 9)
+        self.assertTrue(c.is_leaf(5))
+        self.assertFalse(c.is_leaf(1))
+        bodies = {u: b for _, u, b in op.bodies}
+        self.assertEqual(bodies[f"{BASE}/api/collections/move-items"],
+                         {"item_ids": [1, 2], "from_id": 3, "to_id": 5})
+        self.assertEqual(bodies[f"{BASE}/api/collections/5/items"], {"item_ids": [9]})
+
 
 if __name__ == "__main__":
     unittest.main()

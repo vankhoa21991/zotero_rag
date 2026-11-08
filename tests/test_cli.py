@@ -129,6 +129,184 @@ class FlakyZog(FakeZog):
         return super().item_full(iid)
 
 
+class FakeAgentZog:
+    """Fake ZogClient for the agent commands (collections/add/file). Offline."""
+
+    base_url = "http://fake-zog"
+
+    def __init__(self, tree, urls=None, fail_write=False):
+        self.tree = tree
+        self.urls = urls or {}
+        self.fail_write = fail_write
+        self.created = []
+        self.tag_calls = []
+        self.note_calls = []
+        self.moves = []
+        self.adds = []
+        self._next = 100
+
+    def _fail(self):
+        from zotero_rag.zogclient import ZogError
+
+        raise ZogError("server returned HTTP 403: read scope", "forbidden")
+
+    def collections(self):
+        return [dict(c) for c in self.tree]
+
+    def find_collection(self, q):
+        q = q.strip()
+        if q.isdigit():
+            for c in self.tree:
+                if c["id"] == int(q):
+                    return c
+            raise AssertionError(f"no collection id {q} in fake")
+        if "/" in q:
+            for c in self.tree:
+                if c["path"] == q:
+                    return c
+            raise AssertionError(f"no collection path {q} in fake")
+        m = [c for c in self.tree if c["name"] == q]
+        if len(m) != 1:
+            raise AssertionError(f"collection name {q!r} matched {len(m)} in fake")
+        return m[0]
+
+    def is_leaf(self, cid):
+        return not any(c["parent_id"] == cid for c in self.tree)
+
+    def find_by_url(self, url):
+        return list(self.urls.get(url, []))
+
+    def create_item(self, fields):
+        if self.fail_write:
+            self._fail()
+        self._next += 1
+        self.created.append((self._next, dict(fields)))
+        return self._next
+
+    def add_tags(self, iid, names):
+        if self.fail_write:
+            self._fail()
+        self.tag_calls.append((iid, list(names)))
+
+    def add_note(self, iid, body):
+        if self.fail_write:
+            self._fail()
+        self.note_calls.append((iid, body))
+        return 50
+
+    def move_items(self, ids, from_id, to_id):
+        if self.fail_write:
+            self._fail()
+        self.moves.append((list(ids), from_id, to_id))
+        return 2711
+
+    def add_to_collection(self, cid, ids):
+        if self.fail_write:
+            self._fail()
+        self.adds.append((cid, list(ids)))
+        return 2712
+
+
+AGENT_TREE = [
+    {"id": 14, "name": "AI", "parent_id": None, "path": "AI", "count": 0, "total": 3},
+    {"id": 15, "name": "Agents", "parent_id": 14, "path": "AI/Agents", "count": 2, "total": 2},
+    {"id": 16, "name": "New", "parent_id": None, "path": "New", "count": 0, "total": 0},
+]
+
+
+class CliAgentCommandsTest(CliTest):  # noqa: F811 - reuses run_cli; own setUp below
+    def setUp(self):
+        super().setUp()
+        self.zog = FakeAgentZog(AGENT_TREE)
+        self._orig_source = cli.make_source
+        cli.make_source = lambda env=None: self.zog
+        self.addCleanup(self._restore_source)
+
+    def _restore_source(self):
+        cli.make_source = self._orig_source
+
+    def test_collections_prints_tree_with_counts(self):
+        rc, out, err = self.run_cli("collections")
+        self.assertEqual(rc, 0)
+        lines = [l for l in out.splitlines() if l.strip()]
+        self.assertIn("14 AI (0 direct, 3 total)", lines)
+        self.assertIn("  15 Agents (2 direct, 2 total)", lines)  # indented under AI
+        self.assertIn("16 New (0 direct, 0 total)", lines)
+
+    def test_collections_json_marks_leaves(self):
+        rc, out, err = self.run_cli("collections", "--json")
+        self.assertEqual(rc, 0)
+        entries = {c["id"]: c for c in json.loads(out)}
+        self.assertFalse(entries[14]["leaf"])  # AI has a child
+        self.assertTrue(entries[15]["leaf"])
+        self.assertTrue(entries[16]["leaf"])
+
+    def test_add_creates_item_in_new_by_default(self):
+        rc, out, err = self.run_cli("add", "https://e.com/p", "--title", "P",
+                                    "--tag", "x", "--note", "n")
+        self.assertEqual(rc, 0)
+        self.assertEqual(self.zog.created, [(101, {"type": "webpage", "url": "https://e.com/p",
+                                                   "title": "P"})])
+        self.assertEqual(self.zog.tag_calls, [(101, ["x"])])
+        self.assertEqual(self.zog.note_calls, [(101, "<p>n</p>")])
+        self.assertEqual(self.zog.adds, [(16, [101])])  # New by default
+        self.assertIn("added 101", out)
+
+    def test_add_duplicate_exits_zero_and_reports_it(self):
+        self.zog = FakeAgentZog(AGENT_TREE, urls={"https://e.com/p": [{"id": 77}]})
+        cli.make_source = lambda env=None: self.zog
+        rc, out, err = self.run_cli("add", "https://e.com/p")
+        self.assertEqual(rc, 0)
+        self.assertIn("already in library: 77", out)
+        self.assertEqual(self.zog.created, [])
+
+    def test_add_refuses_non_leaf_collection(self):
+        rc, out, err = self.run_cli("add", "https://e.com/p", "--collection", "AI")
+        self.assertEqual(rc, 1)
+        self.assertIn('"AI" is not a leaf collection', err)
+        self.assertEqual(self.zog.created, [])  # nothing created
+
+    def test_file_moves_between_collections_and_prints_batch(self):
+        rc, out, err = self.run_cli("file", "3", "4", "--to", "AI/Agents", "--from", "New")
+        self.assertEqual(rc, 0)
+        self.assertIn("batch 2711", out)
+        self.assertEqual(self.zog.moves, [([3, 4], 16, 15)])
+
+    def test_file_without_from_adds(self):
+        rc, out, err = self.run_cli("file", "3", "--to", "AI/Agents")
+        self.assertEqual(rc, 0)
+        self.assertIn("batch 2712", out)
+        self.assertEqual(self.zog.adds, [(15, [3])])
+
+    def test_file_refuses_non_leaf_target(self):
+        rc, out, err = self.run_cli("file", "3", "--to", "AI")
+        self.assertEqual(rc, 1)
+        self.assertIn('"AI" is not a leaf collection', err)
+        self.assertEqual(self.zog.moves, [])
+        self.assertEqual(self.zog.adds, [])
+
+    def test_read_token_gets_clear_error_on_add_and_file(self):
+        self.zog = FakeAgentZog(AGENT_TREE, fail_write=True)
+        rc, out, err = self.run_cli("add", "https://e.com/p")
+        self.assertEqual(rc, 1)
+        self.assertIn("zrag: this command needs a write token", err)
+        rc, out, err = self.run_cli("file", "3", "--to", "New")
+        self.assertEqual(rc, 1)
+        self.assertIn("zrag: this command needs a write token", err)
+
+    def test_zog_url_unset_exits_2(self):
+        cli.make_source = self._orig_source  # real make_source, no env
+        saved = os.environ.pop("ZOG_URL", None)
+        self.addCleanup(self._restore_env, saved)
+        rc, out, err = self.run_cli("collections")
+        self.assertEqual(rc, 2)
+        self.assertIn("set ZOG_URL and ZOG_TOKEN", err)
+
+    def _restore_env(self, saved):
+        if saved is not None:
+            os.environ["ZOG_URL"] = saved
+
+
 class CliZogIndexTest(CliTest):  # noqa: F811 - reuses run_cli; own setUp below
     def setUp(self):
         super().setUp()  # patches the model factories so inherited search tests stay offline

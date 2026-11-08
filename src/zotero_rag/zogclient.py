@@ -12,6 +12,7 @@ import html
 import json
 import re
 import urllib.error
+import urllib.parse
 import urllib.request
 
 from .zotclient import strip_html
@@ -146,6 +147,32 @@ class ZogClient:
             if len(page) < 200:
                 return rows
             offset += 200
+
+    def find_by_url(self, url: str) -> list[dict]:
+        """Items whose url equals `url` (server ignores #fragment)."""
+        return self._get(f"/api/items?url={urllib.parse.quote(url, safe='')}")
+
+    def create_item(self, fields: dict) -> int:
+        """POST /api/items with the given fields; returns the new item id (write scope)."""
+        return self._request("POST", "/api/items", fields)["id"]
+
+    def add_tags(self, item_id: int, names: list[str]) -> int:
+        """POST /api/items/{id}/tags; returns the batch id (write scope)."""
+        return self._request("POST", f"/api/items/{item_id}/tags", {"names": list(names)})["batch"]
+
+    def move_items(self, item_ids: list[int], from_id: int, to_id: int) -> int:
+        """POST /api/collections/move-items; returns the batch id (write scope)."""
+        return self._request("POST", "/api/collections/move-items",
+                             {"item_ids": list(item_ids), "from_id": from_id, "to_id": to_id})["batch"]
+
+    def add_to_collection(self, collection_id: int, item_ids: list[int]) -> int:
+        """POST /api/collections/{id}/items; returns the batch id (write scope)."""
+        return self._request("POST", f"/api/collections/{collection_id}/items",
+                             {"item_ids": list(item_ids)})["batch"]
+
+    def is_leaf(self, collection_id: int) -> bool:
+        """True when no collection has `collection_id` as parent (leaf-only rule)."""
+        return not any(c["parent_id"] == collection_id for c in self.collections())
 
     def find_collection(self, name_or_path: str) -> dict:
         """Resolve a collection by exact id (digits), exact path (A/B/C) or

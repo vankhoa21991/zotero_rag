@@ -6,6 +6,7 @@ build from EMBED_MODEL/EMBED_DEVICE, RERANK_MODEL and the LLM_* environment
 variables. Missing models degrade (with a note on stderr), they do not abort.
 """
 import argparse
+import html
 import json
 import os
 import sys
@@ -247,6 +248,110 @@ def cmd_eval(args) -> int:
     return 0
 
 
+def _agent_source_or_exit():
+    """ZogClient for the agent commands; prints the config error and returns
+    None when ZOG_URL is unset (caller exits 2)."""
+    zog = make_source()
+    if zog is None:
+        print("set ZOG_URL and ZOG_TOKEN", file=sys.stderr)
+    return zog
+
+
+def _write_error(e) -> int:
+    """One-line error for a writing agent command; a read-scope token (403)
+    gets the specific message. Returns the exit code."""
+    from .zogclient import ZogError
+
+    if e.kind == "forbidden":
+        print("zrag: this command needs a write token", file=sys.stderr)
+    else:
+        print(f"zrag: {e}", file=sys.stderr)
+    return 1
+
+
+def cmd_collections(args) -> int:
+    from .zogclient import ZogError
+
+    zog = _agent_source_or_exit()
+    if zog is None:
+        return 2
+    try:
+        flat = zog.collections()
+    except ZogError as e:
+        print(f"zrag: {e}", file=sys.stderr)
+        return 1
+    if args.json:
+        for c in flat:
+            c["leaf"] = not any(x["parent_id"] == c["id"] for x in flat)
+        print(json.dumps(flat, ensure_ascii=False, indent=2))
+        return 0
+    by_parent: dict = {}
+    for c in flat:
+        by_parent.setdefault(c["parent_id"], []).append(c)
+
+    def walk(parent, depth):
+        for c in sorted(by_parent.get(parent, []), key=lambda x: x["name"]):
+            print(f"{'  ' * depth}{c['id']} {c['name']} ({c['count']} direct, {c['total']} total)")
+            walk(c["id"], depth + 1)
+
+    walk(None, 0)
+    return 0
+
+
+def cmd_add(args) -> int:
+    from .zogclient import ZogError
+
+    zog = _agent_source_or_exit()
+    if zog is None:
+        return 2
+    try:
+        existing = zog.find_by_url(args.url)
+        if existing:
+            print(f"already in library: {existing[0]['id']}")
+            return 0
+        col = zog.find_collection(args.collection or "New")
+        if not zog.is_leaf(col["id"]):
+            print(f'zrag: "{col["path"]}" is not a leaf collection', file=sys.stderr)
+            return 1
+        fields = {"type": "webpage", "url": args.url, "title": args.title or args.url}
+        iid = zog.create_item(fields)
+        if args.tag:
+            zog.add_tags(iid, args.tag)
+        if args.note:
+            zog.add_note(iid, f"<p>{html.escape(args.note)}</p>")
+        zog.add_to_collection(col["id"], [iid])
+    except ZogError as e:
+        return _write_error(e)
+    if args.json:
+        print(json.dumps({"id": iid, "duplicate": False, "url": f"{zog.base_url}/items/{iid}"},
+                         ensure_ascii=False))
+    else:
+        print(f"added {iid}: {fields['title']}")
+    return 0
+
+
+def cmd_file(args) -> int:
+    from .zogclient import ZogError
+
+    zog = _agent_source_or_exit()
+    if zog is None:
+        return 2
+    try:
+        to = zog.find_collection(args.to)
+        if not zog.is_leaf(to["id"]):
+            print(f'zrag: "{to["path"]}" is not a leaf collection', file=sys.stderr)
+            return 1
+        if args.from_:
+            frm = zog.find_collection(args.from_)
+            bid = zog.move_items(args.ids, frm["id"], to["id"])
+        else:
+            bid = zog.add_to_collection(to["id"], args.ids)
+    except ZogError as e:
+        return _write_error(e)
+    print(f"batch {bid}")
+    return 0
+
+
 def _parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="zrag", description="Search the local Zotero research library.")
     sub = ap.add_subparsers(dest="cmd")
@@ -288,6 +393,25 @@ def _parser() -> argparse.ArgumentParser:
     v.add_argument("questions")
     v.add_argument("--db", default=DB_DEFAULT)
     v.set_defaults(func=cmd_eval)
+
+    c = sub.add_parser("collections", help="list the collection tree with ids and counts (needs ZOG_URL)")
+    c.add_argument("--json", action="store_true", help="print the flattened list with a leaf flag")
+    c.set_defaults(func=cmd_collections)
+
+    a = sub.add_parser("add", help="add a URL as a webpage item (default collection: New)")
+    a.add_argument("url")
+    a.add_argument("--title")
+    a.add_argument("--tag", action="append", default=[], help="repeatable")
+    a.add_argument("--collection", help="id, path or unique name (default: New)")
+    a.add_argument("--note")
+    a.add_argument("--json", action="store_true")
+    a.set_defaults(func=cmd_add)
+
+    f = sub.add_parser("file", help="move or add item ids into a leaf collection")
+    f.add_argument("ids", nargs="+", type=int, metavar="ID")
+    f.add_argument("--to", required=True, help="target leaf collection (id, path or unique name)")
+    f.add_argument("--from", dest="from_", help="source collection: given = move, omitted = add")
+    f.set_defaults(func=cmd_file)
 
     return ap
 
