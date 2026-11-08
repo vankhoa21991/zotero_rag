@@ -34,18 +34,20 @@ a computer where you cannot install Tailscale.
 | Who can reach the login page | Only your own devices that are signed in to your Tailscale account | Anyone on the internet |
 | Public ports open on the VPS | None except SSH | 80 and 443 (plus SSH) |
 | What protects the data | Encrypted private network **and** your password **and** tokens | **Only** your password and tokens |
-| Brute-force password guessing | Not possible from outside your network | Possible: bots find public sites within hours, and the server has **no limit on login attempts** yet |
+| Brute-force password guessing | Not possible from outside your network | Possible: bots find public sites within hours. The server allows only 5 wrong passwords per 5 minutes per IP address, but behind Caddy every visitor appears as the same address, so that limit is shared and weak |
 | Traffic encryption | WireGuard (built into Tailscale), even over `http://` | HTTPS certificate from Caddy |
 | Needs a domain name | No | Yes |
 | Works on a PC where you cannot install software | No (needs the Tailscale app) | Yes, any browser |
 | Setup effort | Small | A little more (domain, DNS, Caddy) |
 
 Why the public option is riskier: the whole library sits behind **one password**. A public login
-page is found and probed by automated scanners, and the server does not yet slow down or block
-repeated wrong passwords. If you choose Option B anyway, use a long random password (20+
-characters from a password manager), keep the server updated, and ask for **login rate limiting**
-to be added to the app first. The API tokens also work from anywhere in Option B, so revoke any
-you no longer use.
+page is found and probed by automated scanners. The server does limit logins (5 wrong passwords per
+5 minutes per IP address, kept in memory and reset when the server restarts), but behind a reverse
+proxy such as Caddy the server sees every visitor as the proxy's own address. One bot can then lock
+you out, and the limit does nothing per attacker. If you choose Option B anyway, use a long random
+password (20+ characters from a password manager), keep the server updated, and ask for the limit
+to use the real client address (`X-Forwarded-For`) first. The API tokens also work from anywhere in
+Option B, so revoke any you no longer use.
 
 A good middle path is Option A for daily use, and adding Option B later only if you really need it.
 
@@ -268,6 +270,8 @@ Zotero folder stays untouched by all of this; keep it as another copy.
 |---|---|
 | `systemctl status` shows `failed` | `journalctl -u aikeytake-zog -n 50`. Usually a wrong path in the service file or `uv sync` was not run. |
 | Page does not load from your computer (Option A) | Is Tailscale on and signed in on both machines? Did you run the `ufw allow in on tailscale0 ...` line and use `--host 0.0.0.0`? Use `http://`, not `https://`. |
+| Login page says "too many attempts" | 5 wrong passwords in 5 minutes block your IP. Wait 5 minutes, or run `sudo systemctl restart aikeytake-zog` to clear it at once. |
+| Forgot the web password | On the VPS: `AIKEYTAKE_ZOG_DATA_DIR=/home/zog/aikeytake-zog-data ~/zotero_rag/.venv/bin/aikeytake-zog set-password` |
 | Cannot log in (Option A) | You set `AIKEYTAKE_ZOG_COOKIE_SECURE=1` but use plain `http://`. Remove that line, reload, restart. |
 | Cannot log in (Option B) | Use the `https://` address exactly. Cookie-secure sites do not log in over `http://`. |
 | Caddy gets no certificate | The A record is wrong, ports 80/443 are closed (also in the provider firewall), or another service already uses them. `journalctl -u caddy -n 50`. |
