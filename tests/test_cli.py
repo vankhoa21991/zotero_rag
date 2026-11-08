@@ -118,11 +118,10 @@ class FakeZog:
 
 class CliZogIndexTest(CliTest):  # noqa: F811 - reuses run_cli; own setUp below
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.tmp.cleanup)
+        super().setUp()  # patches the model factories so inherited search tests stay offline
         from zotero_rag.index import Index
 
-        self.db = os.path.join(self.tmp.name, "t.db")
+        self.db = os.path.join(self.tmp.name, "zog.db")
         idx = Index(self.db)
         idx.upsert(doc(key="A", title="zebra alpha", summary="stale"))
         idx.upsert(doc(key="GONE", title="trashed item"))
@@ -131,12 +130,12 @@ class CliZogIndexTest(CliTest):  # noqa: F811 - reuses run_cli; own setUp below
         with open(os.path.join(self.md_dir, "A.md"), "w") as f:
             f.write("# A\nlocal md summary\n")
         self.zog = FakeZog()
-        self._orig = cli.make_source
+        self._orig_source = cli.make_source
         cli.make_source = lambda env=None: self.zog
-        self.addCleanup(self._restore)
+        self.addCleanup(self._restore_source)
 
-    def _restore(self):
-        cli.make_source = self._orig
+    def _restore_source(self):
+        cli.make_source = self._orig_source
 
     def test_index_from_zog_uses_notes_and_prunes_gone_items(self):
         rc, out, err = self.run_cli("index", "--db", self.db, "--md-dir", self.md_dir)

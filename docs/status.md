@@ -12,7 +12,7 @@ Updated 2026-11-08.
 | **Docs** | `docs/running.md` (tutorial), `docs/vps-deploy.md` (VPS), `docs/aikeytake-zog.md` (reference), `docs/library-structure.md` (collections), `extension/README.md`. |
 | **Hosting** | Running on an IONOS VPS behind Tailscale (or an SSH tunnel). The VPS copy is only as fresh as the last database copy — see below. |
 | **Library organization** | Done for this pass: leaf-only layout, `AI_knowledge` merged into `AI`, audit moves applied, summaries added as notes. See [library-structure.md](library-structure.md). |
-| **zrag** (RAG search) | Built; reads Zotero through `zot`, not yet the server. Full summarization run is done (1,823 summaries in `data/summaries`). |
+| **zrag** (RAG search) | Built; reads the library from this server when `ZOG_URL` is set (items + "AI summary" notes + tags + extracted text), legacy `zot` path as fallback. Full summarization run is done (1,823 "AI summary" notes). |
 
 ## What was done recently
 
@@ -21,16 +21,23 @@ Updated 2026-11-08.
 - Browser extension (7 tasks, reviewed and security-fixed) and the VPS guide.
 - Collection name dialog instead of `prompt()` (browsers can suppress it), plus "+sub" on each collection.
 - Library reorganization and summaries-as-notes (details in [library-structure.md](library-structure.md)).
+- Audit moves applied (438 of 452; 13 root-target items intentionally kept in subcollections) and duplicate
+  cleanup: 207 redundant copies trashed in 183 individually revertable History batches
+  (live items 2,524 → 2,317). 21 same-title groups left for manual review (different documents
+  that share a title, or PDF-only pairs without shared hashes).
+- zrag reoriented to read from the server (plan Task 4): `GET /api/items/{id}/text` endpoint,
+  `ZogClient`, server index path with pruning of trashed items, `id` in search results.
 
 ## Not built yet
 
-- **Agent connection + reorganization proposals** — plan only:
+- **Agent connection + reorganization proposals** — partially built:
   [docs/superpowers/plans/2026-11-07-agent-connection-and-reorganization.md](superpowers/plans/2026-11-07-agent-connection-and-reorganization.md)
-  (proposals table with approve-in-browser, a `ZogClient` for zrag, `zrag collections|add|reorganize`).
-  The library is now organized, so this is the next real step. Note: `GET /api/items/{id}/text` is also planned, not present.
+  (Task 4 done: `ZogClient` + server-based zrag; `GET /api/items/{id}/text` done). Remaining:
+  proposals store/API/web UI (Tasks 1–3) and the `zrag collections|add|reorganize` commands (Tasks 5–6).
 - **Intake flow**: new documents land in the `New` collection; an agent should summarize each one
   ("AI summary" note) and file it into the right leaf. This is the job the agent-connection plan above would automate.
-- Duplicate cleanup, the 61 unfiled items, and splitting `Neuromorphic` (see library-structure.md).
+- The 50 unfiled items, splitting `Neuromorphic` (see library-structure.md), and the 21 same-title
+  groups left for manual review after dedup.
 - Optional: login throttle that uses the real client IP behind a proxy (only matters with a public domain),
   a daily backup cron, a UI warning when dropping an item onto a parent collection.
 

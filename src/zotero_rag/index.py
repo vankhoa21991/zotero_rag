@@ -51,13 +51,20 @@ class Index:
         self.db.execute("CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT)")
         self.db.commit()
 
-    def _fts_sync(self, key: str, old: dict | None, new: dict) -> None:
+    def _fts_sync(self, key: str, old_rowid: int | None, old: dict | None, new: dict) -> None:
+        """Keep the external-content FTS5 table in sync with docs.
+
+        `old_rowid` must be captured by the caller BEFORE the docs row is replaced:
+        SQLite may reuse a freed rowid for the replacement, and an FTS 'delete'
+        issued against the wrong rowid desyncs (eventually corrupts) the
+        external-content index.
+        """
         """Keep the external-content FTS5 table in sync with docs."""
         rowid = self.db.execute("SELECT rowid FROM docs WHERE key=?", (key,)).fetchone()[0]
         if old is not None:
             self.db.execute(
                 "INSERT INTO docs_fts(docs_fts, rowid, " + ", ".join(FTS_COLS) + ") VALUES ('delete', ?" + ",?" * len(FTS_COLS) + ")",
-                (rowid, *[_s(old.get(c)) for c in FTS_COLS]))
+                (old_rowid, *[_s(old.get(c)) for c in FTS_COLS]))
         self.db.execute(
             "INSERT INTO docs_fts(rowid, " + ", ".join(FTS_COLS) + ") VALUES (?" + ",?" * len(FTS_COLS) + ")",
             (rowid, *[_s(new.get(c)) for c in FTS_COLS]))
@@ -66,14 +73,18 @@ class Index:
     def upsert(self, doc: dict) -> bool:
         """Insert or replace; True if inserted or changed, False if the content hash is unchanged."""
         h = _hash(doc)
-        old = self.get(doc["key"])
-        if old and old.get("content_hash") == h:
+        old_row = self.db.execute(
+            "SELECT rowid, key, id, title, creators, year, doi, url, abstract, tags, summary, notes, "
+            "annotations, content_hash FROM docs WHERE key=?", (doc["key"],)).fetchone()
+        if old_row and old_row[-1] == h:
             return False
         self.db.execute(
             "INSERT OR REPLACE INTO docs (key,id,title,creators,year,doi,url,abstract,tags,summary,"
             "notes,annotations,content_hash,vector) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,NULL)",
             (doc["key"], doc.get("id"), *[_s(doc.get(f)) for f in DOC_FIELDS], h))
-        self._fts_sync(doc["key"], old, doc)
+        cols = ["rowid", "key", "id"] + list(DOC_FIELDS) + ["content_hash"]
+        old = dict(zip(cols, old_row)) if old_row else None
+        self._fts_sync(doc["key"], old_row[0] if old_row else None, old, doc)
         return True
 
     def search_fts(self, escaped_query: str, k: int = 30) -> list[tuple[str, float, str, str]]:

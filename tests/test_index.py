@@ -1,5 +1,6 @@
 """Tests for index.py — documents table and content hash. Offline: temp sqlite files."""
 import os
+import sqlite3
 import tempfile
 import unittest
 
@@ -111,6 +112,35 @@ class FtsTest(unittest.TestCase):
         # tokens double-quoted, inner quotes doubled — must execute without error
         res = self.idx.search_fts('"he" AND "said" AND """hi"""')
         self.assertEqual([r[0] for r in res], ["A"])
+
+    def test_replaced_non_max_row_leaves_no_stale_fts_entries(self):
+        # Regression: the FTS 'delete' must use the rowid captured BEFORE INSERT OR
+        # REPLACE. Otherwise stale postings stay under the old (dead) rowid and the
+        # external-content index desyncs: integrity-check reports "database disk image
+        # is malformed" and bm25() returns NULL for some queries.
+        self.idx.upsert(doc(key="A", title="stale term here"))  # rowid 1
+        self.idx.upsert(doc(key="B", title="other"))            # rowid 2 -> A is no longer the max
+        old_rid = self.idx.db.execute("SELECT rowid FROM docs WHERE key='A'").fetchone()[0]
+        self.idx.upsert(doc(key="A", title="fresh term"))       # replace A: new rowid, old one dead
+        self.assertEqual(
+            self.idx.db.execute(
+                "SELECT count(*) FROM docs_fts WHERE rowid=? AND docs_fts MATCH '\"stale\"'",
+                (old_rid,)).fetchone()[0], 0)
+        try:
+            issues = self.idx.db.execute(
+                "INSERT INTO docs_fts(docs_fts, rank) VALUES('integrity-check', 1)").fetchall()
+        except sqlite3.OperationalError as e:
+            self.fail(f"FTS index desynced: {e}")
+        self.assertEqual(issues, [])
+
+    def test_bm25_never_null_after_replace(self):
+        # the live-index symptom of the same bug: bm25() returning NULL for a row
+        # whose postings mix stale and current values
+        self.idx.upsert(doc(key="A", title="alpha beta gamma"))
+        self.idx.upsert(doc(key="B", title="delta epsilon zeta"))
+        self.idx.upsert(doc(key="A", title="alpha theta iota"))
+        res = self.idx.search_fts('"alpha" AND "beta" OR "theta"', 10)
+        self.assertTrue(all(r[1] is not None for r in res))
 
 
 class BuildTest(unittest.TestCase):
