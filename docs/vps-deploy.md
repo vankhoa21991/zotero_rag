@@ -133,7 +133,7 @@ Start it and check:
 sudo systemctl daemon-reload
 sudo systemctl enable --now aikeytake-zog
 systemctl status aikeytake-zog              # "active (running)"
-curl -I http://127.0.0.1:8321/login         # HTTP 200
+curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8321/login   # prints 200
 journalctl -u aikeytake-zog -f              # live log (Ctrl+C to leave)
 ```
 
