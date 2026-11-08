@@ -23,6 +23,13 @@ print(c.execute(f"select count(distinct item_id) from collection_items ci join i
 PY
 ```
 
+## `New` — the intake collection
+
+`New` is where freshly added documents go (by hand or through the browser extension). It is a leaf
+that is meant to be empty most of the time. The intended flow: an agent later writes the summary
+(an "AI summary" note, the same format `scripts/import_summaries.py` produces) and moves the item
+into the correct leaf. Items waiting in `New` are the only ones allowed to be "unplaced". There is no `Inbox`.
+
 ## Top-level groups
 
 | Group | Contents |

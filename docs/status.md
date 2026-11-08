@@ -28,6 +28,8 @@ Updated 2026-11-08.
   [docs/superpowers/plans/2026-11-07-agent-connection-and-reorganization.md](superpowers/plans/2026-11-07-agent-connection-and-reorganization.md)
   (proposals table with approve-in-browser, a `ZogClient` for zrag, `zrag collections|add|reorganize`).
   The library is now organized, so this is the next real step. Note: `GET /api/items/{id}/text` is also planned, not present.
+- **Intake flow**: new documents land in the `New` collection; an agent should summarize each one
+  ("AI summary" note) and file it into the right leaf. This is the job the agent-connection plan above would automate.
 - Duplicate cleanup, the 61 unfiled items, and splitting `Neuromorphic` (see library-structure.md).
 - Optional: login throttle that uses the real client IP behind a proxy (only matters with a public domain),
   a daily backup cron, a UI warning when dropping an item onto a parent collection.
