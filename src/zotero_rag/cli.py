@@ -330,6 +330,32 @@ def cmd_add(args) -> int:
     return 0
 
 
+def cmd_place(args) -> int:
+    from . import place as place_mod
+    from .index import Index
+    from .zogclient import ZogError
+
+    zog = _agent_source_or_exit()
+    if zog is None:
+        return 2
+    try:
+        index = Index(os.path.expanduser(args.db))
+        rows = place_mod.place(zog, index, args.collection, k=args.k)
+    except ZogError as e:
+        print(f"zrag: {e}", file=sys.stderr)
+        return 1
+    if args.json:
+        print(json.dumps(rows, ensure_ascii=False, indent=2))
+        return 0
+    for r in rows:
+        leaf = r["leaf_path"] or "-"
+        conf = f"{r['confidence']:.2f}" if r["leaf_id"] is not None else "-"
+        print(f"{r['id']:>6}  {(r['title'] or '')[:40]:<40}  {leaf:<32}  {conf:>5}  {r['level']}")
+        if r.get("note"):
+            print(f"        note: {r['note']}")
+    return 0
+
+
 def cmd_file(args) -> int:
     from .zogclient import ZogError
 
@@ -406,6 +432,13 @@ def _parser() -> argparse.ArgumentParser:
     a.add_argument("--note")
     a.add_argument("--json", action="store_true")
     a.set_defaults(func=cmd_add)
+
+    p = sub.add_parser("place", help="suggest an existing leaf per item in a collection (read-only)")
+    p.add_argument("--collection", default="New", help="source collection (default: New)")
+    p.add_argument("--k", type=int, default=7, help="neighbors consulted per item")
+    p.add_argument("--db", default=DB_DEFAULT)
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_place)
 
     f = sub.add_parser("file", help="move or add item ids into a leaf collection")
     f.add_argument("ids", nargs="+", type=int, metavar="ID")
