@@ -15,6 +15,32 @@ function fail(e) {
   alert(String((e && e.message) || e));
 }
 
+
+// Name entry in a <dialog> instead of prompt(): browsers can silently suppress prompt().
+// submit(name) may throw; the message is shown in the dialog and it stays open.
+function nameDialog(title, value, submit) {
+  const dlg = document.getElementById("name-dialog");
+  if (!dlg || !dlg.showModal) { // very old browser: fall back to prompt
+    const n = prompt(title, value || "");
+    if (n && n.trim()) return Promise.resolve(submit(n.trim())).catch(fail);
+    return Promise.resolve();
+  }
+  const form = document.getElementById("name-form"), input = document.getElementById("name-input");
+  const err = document.getElementById("name-error");
+  document.getElementById("name-title").textContent = title;
+  input.value = value || ""; err.hidden = true;
+  form.onsubmit = async (ev) => {
+    ev.preventDefault();
+    const name = input.value.trim();
+    if (!name) return;
+    try { await submit(name); dlg.close(); }
+    catch (e) { err.textContent = String((e && e.message) || e); err.hidden = false; }
+  };
+  document.getElementById("name-cancel").onclick = () => dlg.close();
+  dlg.showModal(); input.focus(); input.select();
+  return Promise.resolve();
+}
+
 function selectedIds() {
   return [...document.querySelectorAll(".sel input:checked")].map((c) => +c.value);
 }
@@ -72,27 +98,32 @@ if (bulk) {
 // ---------- library: collection create / rename / delete ----------
 const newColl = document.getElementById("new-collection");
 if (newColl) {
-  newColl.addEventListener("click", async () => {
-    const name = prompt("New collection name:");
-    if (!name) return;
-    try {
+  newColl.addEventListener("click", () =>
+    nameDialog("New collection name", "", async (name) => {
       await api("/api/collections", { method: "POST", body: JSON.stringify({ name }) });
       location.reload();
-    } catch (e) { fail(e); }
-  });
+    }));
 }
+document.querySelectorAll("[data-sub-coll]").forEach((b) =>
+  b.addEventListener("click", () =>
+    nameDialog(`New subcollection in “${b.dataset.name}”`, "", async (name) => {
+      await api("/api/collections", {
+        method: "POST",
+        body: JSON.stringify({ name, parent_id: +b.dataset.subColl }),
+      });
+      location.reload();
+    }))
+);
 document.querySelectorAll("[data-rename-coll]").forEach((b) =>
-  b.addEventListener("click", async () => {
-    const name = prompt("New name:", b.dataset.name);
-    if (!name || name === b.dataset.name) return;
-    try {
+  b.addEventListener("click", () =>
+    nameDialog("Rename collection", b.dataset.name, async (name) => {
+      if (name === b.dataset.name) return;
       await api(`/api/collections/${b.dataset.renameColl}`, {
         method: "PATCH",
         body: JSON.stringify({ name }),
       });
       location.reload();
-    } catch (e) { fail(e); }
-  })
+    }))
 );
 document.querySelectorAll("[data-del-coll]").forEach((b) =>
   b.addEventListener("click", async () => {

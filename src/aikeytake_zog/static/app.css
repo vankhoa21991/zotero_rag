@@ -348,3 +348,10 @@ aside h2[data-drop-root] { border-radius: var(--radius); padding: 0.25rem 0.5rem
 .sort-link.active { color: var(--accent); font-weight: 600; }
 .row-added { flex: 0 0 auto; font-size: 0.75rem; font-variant-numeric: tabular-nums; margin-left: auto; padding-top: 0.25rem; white-space: nowrap; }
 .row-added + .row-links { margin-left: 0; }
+
+.name-dialog { border: 1px solid var(--border, #444); border-radius: 10px; background: var(--surface, #1b1f1d); color: var(--fg, inherit); padding: 1rem 1.25rem; min-width: min(22rem, 90vw); }
+.name-dialog::backdrop { background: rgba(0, 0, 0, 0.5); }
+.name-dialog label { display: block; margin-bottom: 0.5rem; font-weight: 600; }
+.name-dialog input { width: 100%; box-sizing: border-box; }
+.name-dialog .name-actions { display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 0.75rem; }
+.name-dialog #name-error { color: #e5736b; margin: 0.5rem 0 0; }

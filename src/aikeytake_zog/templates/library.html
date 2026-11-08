@@ -3,7 +3,7 @@
 <span class="coll-row" draggable="true" data-collection-id="{{ c.id }}" data-parent-id="{{ c.parent_id if c.parent_id is not none else '' }}" data-name="{{ coll_paths[c.id] }}">
   <a href="/?collection={{ c.id }}" title="{{ coll_paths[c.id] }}" {% if c.id == active_id %}class="active" aria-current="page"{% endif %}>{{ c.name }}</a>
   <span class="muted coll-count" title="{{ c.total }} items including sub-collections{% if c.total != c.count %}, {{ c.count }} directly in this collection{% endif %}">{{ c.total }}{% if c.total != c.count and c.count %}<span class="coll-direct"> · {{ c.count }} direct</span>{% endif %}</span>
-  <span class="coll-actions" aria-label="Collection actions"><span class="coll-more" aria-hidden="true">⋯</span><button class="mini" data-rename-coll="{{ c.id }}" data-name="{{ c.name }}">rename</button><button class="mini danger" data-del-coll="{{ c.id }}" data-name="{{ c.name }}">del</button></span>
+  <span class="coll-actions" aria-label="Collection actions"><span class="coll-more" aria-hidden="true">⋯</span><button class="mini" data-sub-coll="{{ c.id }}" data-name="{{ c.name }}" title="New subcollection">+sub</button><button class="mini" data-rename-coll="{{ c.id }}" data-name="{{ c.name }}">rename</button><button class="mini danger" data-del-coll="{{ c.id }}" data-name="{{ c.name }}">del</button></span>
 </span>
 {% endmacro %}
 {% macro render_coll(c, active_id) %}
@@ -27,6 +27,14 @@
 <a class="sort-link{{ ' active' if cur == key else '' }}" href="/?q={{ (q or '') | urlencode }}&type={{ (type or '') | urlencode }}&tag={{ (tag or '') | urlencode }}{% if collection %}&collection={{ collection }}&recursive={{ 1 if recursive else 0 }}{% endif %}&sort={{ key }}&order={{ next_order }}"{% if cur == key %} aria-sort="{{ 'ascending' if cur_order == 'asc' else 'descending' }}"{% endif %}>{{ label }}{% if cur == key %} <span aria-hidden="true">{{ '↑' if cur_order == 'asc' else '↓' }}</span>{% endif %}</a>
 {% endmacro %}
 {% block body %}
+<dialog id="name-dialog" class="name-dialog">
+  <form method="dialog" id="name-form">
+    <label id="name-title" for="name-input"></label>
+    <input id="name-input" type="text" autocomplete="off" maxlength="200" required>
+    <p id="name-error" class="muted" role="alert" hidden></p>
+    <div class="name-actions"><button type="button" id="name-cancel">Cancel</button><button type="submit" class="btn-primary">Save</button></div>
+  </form>
+</dialog>
 <h1>Library</h1>
 <form method="get" action="/" class="filters">
   <input type="search" name="q" value="{{ q or '' }}" placeholder="Search title, text, notes…">
