@@ -15,7 +15,7 @@
 
 The user's intended weekly flow (see `docs/weekly.md`): items are saved to the `New` collection; an agent writes each item's
 "AI summary" note, proposes an **existing leaf** for it, asks the user in chat, then moves it. The user never drags items.
-So the order is: **R-A** summary write-back, **R-B** `collections` / `add` / `file`, **R-C** `place`, **R-D** end-to-end check and docs.
+So the order is: **R-A** summary write-back, **R-B** `collections` / `add` / `file`, **R-C** `place`, **R-D** end-to-end check and docs, **R-E** the agent skill (last, only once R-A to R-D pass).
 Old Tasks 1–3 (proposals store, API, review page) are **kept but deferred** (optional browser approval instead of a chat reply).
 Old Task 5 is **superseded by R-B**, old Task 6 (`reorganize` clustering) is **deferred**: it invents new groups, the weekly flow assigns to existing leaves.
 
@@ -84,6 +84,16 @@ Constraints that apply to R-A to R-D (in addition to Global Constraints below):
 - [ ] **Step 3: Update `docs/weekly.md`** so the procedure uses `zrag describe/place/file` instead of raw API calls (keep the raw API form as a fallback appendix); remove the "Known gaps" that R-A/R-B fix. Update `docs/status.md` and README.
 - [ ] **Step 4: Run everything** (server suite, RAG tests, `weekly_check.py`); record counts.
 - [ ] **Step 5: Commit** `docs: weekly agent flow with describe, place and file commands`.
+
+### Task R-E: The `zog-library` skill (do this last, only after R-A to R-D are done and verified)
+
+**Why:** the user wants a reusable skill so any agent (Claude Code first) can search the library and run the weekly `New` flow without re-reading the docs each time.
+
+**Files:** Create `skills/zog-library/SKILL.md` in this repo (source of truth, committed); install by copying or symlinking to `~/.claude/skills/zog-library/` (ask the user before installing).
+
+- [ ] **Step 1: Write `SKILL.md`** with frontmatter `name: zog-library` and a `description` that says when to use it: "search my library / find papers I saved" and "process the New collection / file new items". Body, short and imperative, no duplication of the docs (link to them): prerequisites (`zrag.env`, tunnel to the VPS, write token for filing); the **search** recipe (`zrag search "<q>" -k 5 --json`, cite title and url, say when results are weak); the **weekly** recipe (exact command sequence from `docs/agent-usage.md`: backup check, `describe --collection New`, `index`, `embed`, `place`, **ask the user** with the table format from `docs/weekly.md`, then `file`, then report batch ids); the hard rules (leaf-only, touch only `New`, never delete, never move before the user says yes, never print the token).
+- [ ] **Step 2: Test the skill in a fresh session** against a scratch server (never the live library): trigger it with both prompts above and check the agent follows the sequence and asks before filing. Fix the description until it triggers on those phrases and not on unrelated ones.
+- [ ] **Step 3: Commit** `docs: zog-library skill for searching the library and processing New`; tell the user how to install it.
 
 ### Deferred (keep, do not build now)
 
