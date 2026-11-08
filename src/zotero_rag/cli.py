@@ -77,9 +77,10 @@ def make_source(env=None):
     return ZogClient(url, env.get("ZOG_TOKEN", ""))
 
 
-def _index_from_zog(zog, args) -> dict:
+def _index_from_zog(zog, args) -> dict | None:
     """Ingest from the aikeytake-zog server: summaries come from its 'AI summary'
-    notes, not from data/summaries."""
+    notes, not from data/summaries. Returns None (nothing written) when the export
+    is empty — an empty or shrunken export must never wipe the index."""
     from . import items as items_mod
     from .index import Index, build
     from .zogclient import ZogError, split_notes
@@ -87,25 +88,42 @@ def _index_from_zog(zog, args) -> dict:
     rows = zog.export_all()
     top = items_mod.top_level(rows)
     print(f"{len(rows)} rows, {len(top)} top-level items (from {zog.base_url})", file=sys.stderr)
+    if not top:
+        print("error: server returned no top-level items; refusing to touch the index "
+              "(check ZOG_URL/ZOG_TOKEN and that the server is healthy)", file=sys.stderr)
+        return None
     notes, summaries = {}, {}
+    skipped = []
     for i, row in enumerate(top, 1):
         if i % 100 == 0 or i == len(top):
             print(f"notes {i}/{len(top)}", file=sys.stderr, flush=True)
         try:
             full = zog.item_full(row["id"])
         except ZogError as e:
-            print(f"note: skipping notes for {row['key']}: {e}", file=sys.stderr)
-            summaries[row["key"]] = ""  # never fall back to data/summaries
+            print(f"note: skipping {row['key']}: {e}", file=sys.stderr)
+            skipped.append(row["key"])  # keep the old index entry untouched
             continue
         summary, others = split_notes(full)
         summaries[row["key"]] = summary
         notes[row["key"]] = others
         row["tags"] = full.get("tags") or []
     idx = Index(os.path.expanduser(args.db))
-    counts = build(idx, top, args.md_dir, notes, None, summaries_by_key=summaries)
-    # prune docs whose item is gone from the server (trashed/deduped/removed)
+    n_existing = len(idx.all_keys())
+    counts = build(idx, [r for r in top if r["key"] not in skipped], args.md_dir, notes, None,
+                   summaries_by_key=summaries)
+    if skipped:
+        print(f"warning: {len(skipped)} items skipped (item fetch failed); "
+              "their index entries were left untouched", file=sys.stderr)
+    # prune docs whose item is gone from the server (trashed/deduped/removed);
+    # `live` includes skipped keys — they exist on the server, we just couldn't read them
     live = {r["key"] for r in top}
     pruned = [k for k in idx.all_keys() if k not in live]
+    if pruned and n_existing and len(live) < 0.5 * n_existing \
+            and not getattr(args, "force_prune", False):
+        print(f"warning: export has {len(live)} items but the index had {n_existing}; a large "
+              "shrink usually means a bad token or a partial response. Skipping prune "
+              "(use --force-prune to override).", file=sys.stderr)
+        pruned = []
     for k in pruned:
         idx.delete(k)
     if pruned:
@@ -122,6 +140,8 @@ def cmd_index(args) -> int:
     zog = make_source()
     if zog is not None:
         counts = _index_from_zog(zog, args)
+        if counts is None:
+            return 1
     else:
         zot = Zot()
         rows = _items_rows(args.items_json, zot)
@@ -241,6 +261,8 @@ def _parser() -> argparse.ArgumentParser:
     i.add_argument("--db", default=DB_DEFAULT)
     i.add_argument("--md-dir", default="data/summaries")
     i.add_argument("--notes-cache", default="data/notes_annotations.json")
+    i.add_argument("--force-prune", action="store_true",
+                   help="server mode: prune even when the export shrinks the index by more than half")
     i.set_defaults(func=cmd_index)
 
     e = sub.add_parser("embed", help="compute vectors for docs without one (stage 2)")

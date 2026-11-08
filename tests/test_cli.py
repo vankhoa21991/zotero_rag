@@ -116,6 +116,19 @@ class FakeZog:
         return {"tags": [], "notes": []}
 
 
+class EmptyZog(FakeZog):
+    def export_all(self):
+        return []
+
+
+class FlakyZog(FakeZog):
+    def item_full(self, iid):
+        if iid == 1:
+            from zotero_rag.zogclient import ZogError
+            raise ZogError("boom")
+        return super().item_full(iid)
+
+
 class CliZogIndexTest(CliTest):  # noqa: F811 - reuses run_cli; own setUp below
     def setUp(self):
         super().setUp()  # patches the model factories so inherited search tests stay offline
@@ -151,3 +164,52 @@ class CliZogIndexTest(CliTest):  # noqa: F811 - reuses run_cli; own setUp below
         self.assertIsNone(idx.get("GONE"))  # pruned: no longer on the server
         self.assertIsNotNone(idx.get("C"))  # new server item indexed
         self.assertIn("pruned 1 docs", err)
+
+    def test_empty_export_refuses_to_touch_index(self):
+        self.zog = EmptyZog()
+        rc, out, err = self.run_cli("index", "--db", self.db, "--md-dir", self.md_dir)
+        self.assertEqual(rc, 1)
+        self.assertIn("refusing to touch the index", err)
+        from zotero_rag.index import Index
+
+        idx = Index(self.db)
+        self.assertEqual(idx.get("A")["summary"], "stale")  # untouched
+        self.assertIsNotNone(idx.get("GONE"))  # not pruned on an empty export
+
+    def test_large_shrink_skips_prune_without_force(self):
+        from zotero_rag.index import Index
+
+        idx = Index(self.db)
+        for i in range(8):  # index now has A, GONE + S0..S7 = 10 docs; export has 2
+            idx.upsert(doc(key=f"S{i}", title=f"seed {i}"))
+        rc, out, err = self.run_cli("index", "--db", self.db, "--md-dir", self.md_dir)
+        self.assertEqual(rc, 0)
+        self.assertIn("Skipping prune", err)
+        idx = Index(self.db)
+        for i in range(8):
+            self.assertIsNotNone(idx.get(f"S{i}"))  # none pruned
+        self.assertIsNotNone(idx.get("GONE"))
+        self.assertIsNotNone(idx.get("C"))  # new items were still indexed
+        # --force-prune overrides the guard and prunes everything not in the export
+        rc, out, err = self.run_cli("index", "--db", self.db, "--md-dir", self.md_dir,
+                                    "--force-prune")
+        self.assertEqual(rc, 0)
+        self.assertIn("pruned 9 docs", err)  # GONE + S0..S7
+        idx = Index(self.db)
+        self.assertIsNone(idx.get("GONE"))
+        self.assertIsNone(idx.get("S0"))
+        self.assertIsNotNone(idx.get("A"))
+        self.assertIsNotNone(idx.get("C"))
+
+    def test_failed_fetch_keeps_old_index_entry(self):
+        self.zog = FlakyZog()
+        rc, out, err = self.run_cli("index", "--db", self.db, "--md-dir", self.md_dir)
+        self.assertEqual(rc, 0)
+        self.assertIn("1 items skipped", err)
+        from zotero_rag.index import Index
+
+        idx = Index(self.db)
+        a = idx.get("A")
+        self.assertIsNotNone(a)  # not pruned: it still exists on the server
+        self.assertEqual(a["summary"], "stale")  # old entry kept, not blanked
+        self.assertIsNotNone(idx.get("C"))  # healthy items were still indexed

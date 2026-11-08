@@ -26,6 +26,24 @@ class IndexTest(unittest.TestCase):
         self.assertIsNotNone(self.idx.get("K1"))
         self.assertEqual(len(self.idx.keys_without_vector()), 1)
 
+    def test_unchanged_hash_backfills_id(self):
+        # Review bug: docs indexed before the id column existed keep id NULL, because
+        # id is outside the content hash and the unchanged-hash early return never wrote it.
+        self.idx.upsert(doc())  # no id -> stored as NULL
+        self.assertIsNone(self.idx.get("K1")["id"])
+        import numpy as np
+        self.idx.set_vector("K1", np.zeros(4, dtype="float32"))
+        changed = self.idx.upsert(doc(id=42))  # same content hash, new id
+        self.assertFalse(changed)
+        self.assertEqual(self.idx.get("K1")["id"], 42)
+        self.assertEqual(len(self.idx.keys_without_vector()), 0)  # vector untouched
+
+    def test_unchanged_hash_without_id_keeps_stored_id(self):
+        # a doc arriving without an id must not clobber a stored one with NULL
+        self.idx.upsert(doc(id=7))
+        self.assertFalse(self.idx.upsert(doc()))
+        self.assertEqual(self.idx.get("K1")["id"], 7)
+
     def test_changed_summary_replaces_row_and_clears_vector(self):
         import numpy as np
         self.idx.upsert(doc(summary="old"))

@@ -145,6 +145,9 @@ def main(argv=None) -> int:
         rows = zog.export_all()
         top = items.top_level(rows)
         print(f"{len(rows)} rows, {len(top)} top-level items (from {zog.base_url})", file=sys.stderr)
+        print("note: server mode — 'zrag index' reads summaries from the server's 'AI summary' "
+              "notes, so the .md files written here are NOT indexed until they are written back "
+              "as notes (not implemented yet; see the agent-connection plan, Tasks 5-7).", file=sys.stderr)
         llm = LLM()
         keys = set(a.keys.split(",")) if a.keys else None
         counts = run(top, None, llm, a.out, a.md_dir, limit=a.limit, keys=keys,

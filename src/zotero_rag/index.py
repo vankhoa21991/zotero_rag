@@ -59,7 +59,6 @@ class Index:
         issued against the wrong rowid desyncs (eventually corrupts) the
         external-content index.
         """
-        """Keep the external-content FTS5 table in sync with docs."""
         rowid = self.db.execute("SELECT rowid FROM docs WHERE key=?", (key,)).fetchone()[0]
         if old is not None:
             self.db.execute(
@@ -77,6 +76,12 @@ class Index:
             "SELECT rowid, key, id, title, creators, year, doi, url, abstract, tags, summary, notes, "
             "annotations, content_hash FROM docs WHERE key=?", (doc["key"],)).fetchone()
         if old_row and old_row[-1] == h:
+            # id is not part of the content hash: backfill it for docs indexed before
+            # the column existed, without touching FTS or the stored vector.
+            new_id = doc.get("id")
+            if new_id is not None and old_row[2] != new_id:
+                self.db.execute("UPDATE docs SET id=? WHERE key=?", (new_id, doc["key"]))
+                self.db.commit()
             return False
         self.db.execute(
             "INSERT OR REPLACE INTO docs (key,id,title,creators,year,doi,url,abstract,tags,summary,"
